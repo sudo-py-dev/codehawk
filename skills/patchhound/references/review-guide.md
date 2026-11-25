@@ -48,7 +48,7 @@ Dismiss when the source is not attacker-influenced or the path neutralizes it. W
 
 ## Diff reviews
 
-- A diff can **remove** protection: deleted auth middleware, loosened validation, widened CORS, disabled CSRF, a `verify=False`. Look at what was removed (`git diff <base> <ref> -- <file>`), not just added lines.
+- A diff can **remove** protection: deleted auth middleware, loosened validation, widened CORS, disabled CSRF, a `verify=False`. Look at what was removed (`show.mjs <root> --diff <file>`), not just added lines.
 - A safe-looking change can make an old sink reachable (new route calling an old unsafe helper). Follow new call paths into unchanged code; report the issue at the sink, and say how the change exposed it.
 
 ## Writing it up

@@ -172,7 +172,7 @@ npm test
 commands/              /patchhound:pr, :commit, :branch, :repo, :fix
 skills/patchhound/
   SKILL.md             the review procedure Claude follows
-  scripts/             target · scan · build · fix (Node, no dependencies)
+  scripts/             target · scan · show · build · fix (Node, no dependencies)
   scripts/lib/rules.mjs  the rule pack
   assets/report.html   report template
   references/          findings schema, security and quality review guides

@@ -267,3 +267,19 @@ test("a $' in the commit subject does not corrupt the report", () => {
   assert.equal(html.match(/<title>/g).length, 1);
   assert.match(html, /<title>[^<]*Escape \$' in templates<\/title>/);
 });
+
+test('show.mjs reads the scanned version and refuses anything else', () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, 'src/server.js'), '// added line\n');
+  git(dir, 'commit', '-qam', 'add');
+  run('target.mjs', dir, '--commit', 'HEAD');
+  fs.appendFileSync(path.join(dir, 'src/server.js'), '// uncommitted\n'); // the scan read the commit, not the working tree
+  const show = (...a) => execFileSync('node', [path.join(S, 'show.mjs'), dir, ...a], { encoding: 'utf8', stdio: 'pipe' });
+  const out = show('src/server.js');
+  assert.match(out, /^ *1  const express/m);
+  assert.match(out, /added line/);
+  assert.doesNotMatch(out, /uncommitted/);
+  assert.match(show('--diff', 'src/server.js'), /^\+\/\/ added line$/m);
+  for (const bad of ['../outside', '--output=x']) assert.throws(() => show(bad), `should refuse ${bad}`);
+  assert.ok(!fs.existsSync(path.join(dir, 'x')), '--output must never write a file');
+});
