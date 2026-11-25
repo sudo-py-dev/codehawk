@@ -1,6 +1,6 @@
 {
   "name": "codehawk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Code review for Claude Code: reviews PRs, commits, branches and whole repos for security vulnerabilities and code quality (bugs, error handling, performance, maintainability), writes a walkthrough and an interactive report, applies fixes only after you approve them, and resists prompt injection hidden in untrusted code.",
   "author": {
     "name": "sudo-py-dev",

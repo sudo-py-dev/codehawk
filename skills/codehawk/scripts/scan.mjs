@@ -112,6 +112,44 @@ for (const f of scope.files) {
   fileStats.push({ path: f.path, lang: f.lang, lines: lines.length, changedLines, hits, qhits, signals, hot, test: isTestPath(f.path), status: f.status, changed: f.changed });
 }
 
+// ── The same allow-list set differently in different places ──
+// A restriction fixed in one call site but not its siblings (the probe still blocks what the
+// conversion now allows) is a classic half-applied fix. Compare every site that sets the same key.
+const listKeys = new Set();
+for (const c of candidates.filter((x) => x.rule === 'allowlist-change').slice(0, 20)) {
+  const site = listSite(c.code);
+  if (!site || listKeys.has(site.key)) continue;
+  listKeys.add(site.key);
+  const grep = scope.ref ? tryGit(root, 'grep', '-n', '-I', '-F', '-e', site.key, scope.ref, '--') : tryGit(root, 'grep', '-n', '-I', '--untracked', '-F', '-e', site.key, '--');
+  if (!grep) continue;
+  const sites = [];
+  for (const row of grep.split('\n').filter(Boolean).slice(0, 200)) {
+    const m = (scope.ref ? row.slice(row.indexOf(':') + 1) : row).match(/^(.*?):(\d+):(.*)$/);
+    if (!m || /(^|\/)(node_modules|vendor|\.codehawk)\//.test(m[1])) continue;
+    const other = listSite(m[3]);
+    if (other && other.key === site.key && !/\b(assert\w*!?|expect|should|toEqual|toContain)\b/.test(m[3])) sites.push({ file: m[1], line: +m[2], value: other.value });
+  }
+  const values = [...new Set(sites.map((x) => x.value))];
+  if (values.length < 2) continue;
+  const where = sites.map((x) => `${x.file}:${x.line} = ${x.value}`).join('; ');
+  candidates.push({
+    rule: 'allowlist-inconsistent', kind: 'quality', title: `${site.key} is set to ${values.length} different values`, severity: 'high', category: 'bug', cwe: 'CWE-183',
+    file: c.file, line: c.line, col: 1, code: c.code,
+    hint: `Sites: ${where}. Do these paths handle the same input? If one runs before another (probe before conversion, validation before use), the stricter list wins and the looser one has no effect; if they guard different inputs, say why. Make the shared set one constant.`,
+    test: c.test,
+  });
+}
+function listSite(line) {
+  // A flag or name that looks like an allow/deny list, then the first string literal after it.
+  const m = line.match(/(["'`]?)(-{0,2}[A-Za-z_][\w.-]*(?:white|allow|safe|permit|block|deny|black)[-_]?(?:list|ed[\w-]*)[\w.-]*)\1/i);
+  if (!m) return null;
+  const rest = line.slice(m.index + m[0].length);
+  const v = rest.match(/["'`]([^"'`]{1,200})["'`]/) || rest.match(/[=:]\s*(\[[^\]]{1,200}\])/);
+  if (!v) return null;
+  const value = v[1].split(/\s*[,|;]\s*|\s+/).map((x) => x.replace(/["'`\[\]]/g, '').trim()).filter(Boolean).sort().join(',');
+  return value ? { key: m[2], value } : null;
+}
+
 // Duplicated blocks across the scanned files.
 for (const c of duplicates(dupInput)) candidates.push({ ...c, col: 1 });
 for (const c of candidates) c.kind = kindOf(c.category);

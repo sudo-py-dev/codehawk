@@ -193,7 +193,7 @@ export const RULE_CWE = {
   'debug-left': 'CWE-489', 'commented-code': 'CWE-1164', todo: 'CWE-546', 'hardcoded-localhost': 'CWE-1051',
   'js-var': 'CWE-710', 'py-star-import': 'CWE-710', 'py-none-eq': 'CWE-1025', 'shadow-builtin': 'CWE-710',
   'long-function': 'CWE-1080', 'complex-function': 'CWE-1121', 'deep-nesting': 'CWE-1124', 'query-in-loop': 'CWE-1050',
-  'await-in-loop': 'CWE-1050', 'large-file': 'CWE-1080', 'duplicate-block': 'CWE-1041',
+  'await-in-loop': 'CWE-1050', 'allowlist-inconsistent': 'CWE-183', 'large-file': 'CWE-1080', 'duplicate-block': 'CWE-1041',
 };
 
 export const cweUrl = (cwe) => (cwe ? `https://cwe.mitre.org/data/definitions/${String(cwe).replace(/\D/g, '')}.html` : null);

@@ -470,3 +470,27 @@ test('behavior checks: late size limits, fixed-count parser skips, edited allow-
   assert.match(ws, /## 1c\. Regression pass/);
   assert.match(ws, /`src\/lib\/rtf\.rs` — \d+ lines? replaced or removed/);
 });
+
+test('an allow-list loosened in one call site but not its sibling is flagged once, with every site', () => {
+  const dir = repo();
+  fs.writeFileSync(path.join(dir, 'src/lib/probe.rs'), 'fn probe(a: &mut Vec<String>) {\n    a.extend(["-protocol_whitelist".into(), "file,pipe".into()]);\n}\n');
+  fs.writeFileSync(path.join(dir, 'src/lib/convert.rs'), 'fn input(a: Args) -> Args {\n    a.flag("-protocol_whitelist", "file,pipe")\n}\nfn cover(a: Args) -> Args {\n    a.flag("-protocol_whitelist", "file,pipe")\n}\n');
+  git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'base');
+  const f = path.join(dir, 'src/lib/convert.rs');
+  fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replaceAll('"file,pipe"', '"file,pipe,crypto"'));
+  git(dir, 'commit', '-qam', 'allow crypto for HLS');
+  run('target.mjs', dir, '--commit', 'HEAD');
+  run('scan.mjs', dir);
+  const inc = cands(dir).filter((x) => x.rule === 'allowlist-inconsistent');
+  assert.equal(inc.length, 1, 'one candidate per list, not per changed site');
+  assert.equal(inc[0].severity, 'high');
+  assert.match(inc[0].hint, /src\/lib\/probe\.rs:2 = file,pipe/);
+  assert.match(inc[0].hint, /src\/lib\/convert\.rs:2 = crypto,file,pipe/);
+  // Consistent everywhere: nothing to flag.
+  const p = path.join(dir, 'src/lib/probe.rs');
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace('"file,pipe"', '"file,pipe,crypto"'));
+  git(dir, 'commit', '-qam', 'probe too');
+  run('target.mjs', dir, '--commit', 'HEAD');
+  run('scan.mjs', dir);
+  assert.ok(!cands(dir).some((x) => x.rule === 'allowlist-inconsistent'));
+});

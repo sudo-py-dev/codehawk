@@ -162,7 +162,7 @@ export function behavior(lines, lang, changed, { path: file = '' } = {}) {
       if (PARSE_CTX.test(ctx)) {
         lastSkip = i;
         out.push({ rule: 'parser-skip', title: 'Parser skips a fixed amount of input', severity: 'low', category: 'bug', cwe: 'CWE-1286', line: i + 1, endLine: i + 1, code: raw.trim().slice(0, 220),
-          hint: 'Is the count fixed by the format, or does earlier state change it (a length prefix, an escape width, a mode such as RTF \\ucN)? What happens at end of input, with the shortest and longest valid forms, and with input the old code accepted? Name one concrete input whose output changes.' });
+          hint: 'List every form the grammar allows at this point and trace each one, alone and mixed: for RTF after \\uN that is a plain character, \\\'hh, an escaped symbol (\\\\ \\{ \\}), a control word with its parameter, and a group brace. A branch that handles one form and breaks or falls through on the others is the usual bug. Also: is the count fixed, or set by earlier state (a length prefix, an escape width, a mode such as \\ucN)? What happens at end of input? Name one concrete input whose output changes.' });
       }
     }
 
