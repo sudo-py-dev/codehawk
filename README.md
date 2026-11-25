@@ -163,14 +163,14 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 
 <p align="center"><img src="docs/assets/report-finding.png" alt="A code-quality finding: unawaited forEach(async), with the lines highlighted, a Quality tab and Likely bug / Should fix / Refactor / Nitpick labels" width="900"></p>
 
-- **Two grades and a verdict.** A–F for security and for code quality, plus *Blocks merge*, *Needs attention* or *Looks clean*. Each finding shows its point deduction. Scores update live as fixes pass verification or findings reopen.
+- **Two score charts and a verdict.** Security and code quality each get a donut chart with an A–F grade in the center and a score out of 100 beside it. The verdict is *Blocks merge*, *Needs attention* or *Looks clean*. Each finding shows its point deduction, and the charts update live as fixes pass verification or findings reopen.
 - **Walkthrough.** What the change does, grouped by files, with an estimated review effort.
 - **All / Security / Quality tabs.** Quality findings are labeled *Likely bug*, *Should fix*, *Refactor* or *Nitpick*.
 - **Clickable breakdowns.** Filter by severity, category or riskiest file.
 - **Each finding** shows the highlighted code, its impact, a concrete attack scenario and the fix as a diff.
 - **Queue fix** collects fixes into a single `/codehawk:fix …` command. **Copy fix prompt** hands one finding to Claude with full context.
 - **Resolution status, live.** Keep the report open while Claude fixes things: each finding turns green and slides into **Resolved** as soon as it's fixed, no reload needed. In the Claude desktop app the report is served from a private local server (`serve.mjs`: 127.0.0.1 only, secret URL, read-only, stops when idle), so updates appear instantly in the preview pane. Each one shows its fix checklist (code changed, problem gone, fixed everywhere, no regression) with the evidence for every box, and the list shows *Verified* or how many checks are left (*2/4*). The header shows progress and the grades you'd get once the fixes land, and the PR comment and SARIF leave resolved findings out.
-- **Triage.** Mark findings Open, False positive or Accepted, then view Open, Resolved, Triaged or All. Triage marks are saved in your browser only.
+- **Triage.** Mark findings Open, False positive or Accepted from the controls below the fix buttons. Use the *To do*, *Verified*, *Triaged* and *All* filters to switch views. Triage marks are saved in your browser only.
 - **Checked and cleared.** Lists every dismissed hit with its reason, so you can see the review actually happened.
 - **Comfortable to use.** Dark and light themes, keyboard shortcuts (`j` / `k`, `/`, `1`–`5`, `f`, `t`), deep links, a mobile layout, reduced motion and print styles.
 - **Export.** Copy the PR comment, or download SARIF or JSON.
@@ -185,7 +185,13 @@ Outputs go to `.codehawk/` in the scanned repo, which ignores itself in git:
 | `sbom.cdx.json` | CycloneDX 1.5 SBOM: every pinned dependency and its known vulnerabilities |
 | `resolutions.json` | Which findings were fixed, how, and whether they were verified (for this scan only). `live.js` carries the same to the open report |
 
-See [`docs/example/`](docs/example/) for a full review of the deliberately vulnerable app in `tests/fixtures/vuln-app`, and [`docs/index.html`](docs/index.html) for the project's landing page.
+The [example review](docs/example/) includes a self-contained report you can open directly from a local checkout. To preview it over HTTP, run this from the repository root.
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1 --directory docs/example
+```
+
+Open the [example report on localhost](http://127.0.0.1:8000/report.html). Use `?still` to disable animations or `?theme=dark` and `?theme=light` to choose a theme.
 
 ## Development
 
