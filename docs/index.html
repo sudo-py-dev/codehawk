@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>PatchHound · Code review for Claude Code</title>
-<meta name="description" content="PatchHound reviews your PRs, commits and repos for security holes and code quality, then patches them with your approval. A code reviewer for Claude Code.">
+<title>CodeHawk · Code review for Claude Code</title>
+<meta name="description" content="CodeHawk reviews your PRs, commits and repos for security holes and code quality, then patches them with your approval. A code reviewer for Claude Code.">
 <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
 <style>
 :root {
@@ -346,7 +346,7 @@ header.hero .rv { transition-duration: .9s; }
 
 <nav class="top" id="nav" aria-label="Main">
   <div class="wrap">
-    <a class="brand" href="#top"><img src="assets/logo.svg" alt=""><span>Patch<b>Hound</b></span></a>
+    <a class="brand" href="#top"><img src="assets/logo.svg" alt=""><span>Code<b>Hawk</b></span></a>
     <div class="links">
       <a href="#features">Features</a>
       <a href="#tracks">What it finds</a>
@@ -355,7 +355,7 @@ header.hero .rv { transition-duration: .9s; }
     </div>
     <div class="nav-end">
       <button class="btn icon" id="theme" aria-label="Toggle theme"><svg class="i"><use href="#i-sun"/></svg></button>
-      <a class="btn" href="https://github.com/sudo-py-dev/patchhound"><svg class="i"><use href="#i-github"/></svg><span class="gh-label">GitHub</span></a>
+      <a class="btn" href="https://github.com/sudo-py-dev/codehawk"><svg class="i"><use href="#i-github"/></svg><span class="gh-label">GitHub</span></a>
     </div>
   </div>
 </nav>
@@ -364,21 +364,21 @@ header.hero .rv { transition-duration: .9s; }
   <header class="hero">
     <div class="wrap">
       <span class="eyebrow rv"><span class="dot"></span>A plugin for Claude Code · free &amp; open source</span>
-      <h1 class="rv">Code review that <span class="grad">sniffs out</span> what others miss.</h1>
-      <p class="lede rv">PatchHound reviews your pull requests, commits and whole repos for security holes and code quality. It explains every issue in plain language, then patches it, but only once you've approved the change.</p>
+      <h1 class="rv">Code review that <span class="grad">spots</span> what others miss.</h1>
+      <p class="lede rv">CodeHawk reviews your pull requests, commits and whole repos for security holes and code quality. It explains every issue in plain language, then patches it, but only once you've approved the change.</p>
       <div class="cta rv">
         <a class="btn primary lg" href="example/report.html">See a live report <svg class="i i-arrow"><use href="#i-arrow"/></svg></a>
         <a class="btn lg" href="#how">How it works</a>
       </div>
       <div class="rv">
-        <div class="install"><code><b>claude</b> plugin marketplace add sudo-py-dev/patchhound</code><button class="btn" data-copy="claude plugin marketplace add sudo-py-dev/patchhound" aria-label="Copy install command"><svg class="i" style="width:16px;height:16px"><use href="#i-copy"/></svg>Copy</button></div>
+        <div class="install"><code><b>claude</b> plugin marketplace add sudo-py-dev/codehawk</code><button class="btn" data-copy="claude plugin marketplace add sudo-py-dev/codehawk" aria-label="Copy install command"><svg class="i" style="width:16px;height:16px"><use href="#i-copy"/></svg>Copy</button></div>
       </div>
     </div>
     <div class="wrap">
       <div class="shot rv">
         <a class="frame" href="example/report.html" aria-label="Open the example report">
-          <div class="bar"><i></i><i></i><i></i><span>.patchhound/report.html</span></div>
-          <img class="only-dark" src="assets/report-dark.png" alt="PatchHound report: security grade F, code quality D, a prompt-injection warning, and findings by category" width="1440" height="900">
+          <div class="bar"><i></i><i></i><i></i><span>.codehawk/report.html</span></div>
+          <img class="only-dark" src="assets/report-dark.png" alt="CodeHawk report: security grade F, code quality D, a prompt-injection warning, and findings by category" width="1440" height="900">
           <img class="only-light" src="assets/report-light.png" alt="" width="1440" height="900">
         </a>
       </div>
@@ -394,7 +394,7 @@ header.hero .rv { transition-duration: .9s; }
   <section class="block" id="features">
     <div class="wrap">
       <div class="head">
-        <div class="kicker rv">Why PatchHound</div>
+        <div class="kicker rv">Why CodeHawk</div>
         <h2 class="rv">Everything a great reviewer does. None of the noise.</h2>
         <p class="sub rv">Fast rules find the suspects. Claude reads the code, follows how input reaches it, and keeps only what a senior engineer would actually comment on.</p>
       </div>
@@ -465,7 +465,7 @@ header.hero .rv { transition-duration: .9s; }
       <div class="safety">
         <div class="panel warn rv">
           <h3><svg class="i"><use href="#i-alert"/></svg>Can't be talked out of looking</h3>
-          <p>Public repos and outside PRs can hide <b>prompt injection</b>: text written to trick AI reviewers into skipping a backdoor or running a command. PatchHound warns you up front and treats every file as data.</p>
+          <p>Public repos and outside PRs can hide <b>prompt injection</b>: text written to trick AI reviewers into skipping a backdoor or running a command. CodeHawk warns you up front and treats every file as data.</p>
           <ul class="checks">
             <li><svg class="i"><use href="#i-check"/></svg><span><b>Only you set the scope.</b> No comment, config or PR text can narrow it.</span></li>
             <li><svg class="i"><use href="#i-check"/></svg><span><b>"Already audited" isn't evidence.</b> Dismissals that rely on the code's own claims are rejected.</span></li>
@@ -496,12 +496,12 @@ header.hero .rv { transition-duration: .9s; }
       <div class="term rv" role="region" aria-label="Commands">
         <div class="bar"><i></i><i></i><i></i><span>claude</span></div>
         <table>
-          <tr><td>/patchhound:pr 42</td><td>Review a GitHub pull request, including PRs from forks</td></tr>
-          <tr><td>/patchhound:commit [sha]</td><td>Review one commit (HEAD by default)</td></tr>
-          <tr><td>/patchhound:branch [base]</td><td>Review your branch and uncommitted work before opening a PR</td></tr>
-          <tr><td>/patchhound:repo [--at tag]</td><td>Audit the whole repository, now or at any commit</td></tr>
-          <tr><td>/patchhound:quality [scope]</td><td>Code quality only: bugs, error handling, performance, maintainability</td></tr>
-          <tr><td>/patchhound:fix SEC-001 CQ-002</td><td>Apply fixes, shown first and applied only after you approve</td></tr>
+          <tr><td>/codehawk:pr 42</td><td>Review a GitHub pull request, including PRs from forks</td></tr>
+          <tr><td>/codehawk:commit [sha]</td><td>Review one commit (HEAD by default)</td></tr>
+          <tr><td>/codehawk:branch [base]</td><td>Review your branch and uncommitted work before opening a PR</td></tr>
+          <tr><td>/codehawk:repo [--at tag]</td><td>Audit the whole repository, now or at any commit</td></tr>
+          <tr><td>/codehawk:quality [scope]</td><td>Code quality only: bugs, error handling, performance, maintainability</td></tr>
+          <tr><td>/codehawk:fix SEC-001 CQ-002</td><td>Apply fixes, shown first and applied only after you approve</td></tr>
         </table>
       </div>
     </div>
@@ -510,16 +510,16 @@ header.hero .rv { transition-duration: .9s; }
   <div class="wrap">
     <section class="final rv">
       <img src="assets/logo.svg" alt="">
-      <h2>Let the hound loose on your next PR.</h2>
+      <h2>Let the hawk loose on your next PR.</h2>
       <p class="sub">Two commands to install. Works in any git repository, fully offline.</p>
       <div class="cta">
-        <button class="btn primary lg" data-copy="claude plugin marketplace add sudo-py-dev/patchhound && claude plugin install patchhound@patchhound"><svg class="i"><use href="#i-copy"/></svg>Copy install commands</button>
+        <button class="btn primary lg" data-copy="claude plugin marketplace add sudo-py-dev/codehawk && claude plugin install codehawk@codehawk"><svg class="i"><use href="#i-copy"/></svg>Copy install commands</button>
         <a class="btn lg" href="example/report.html">Open the example report</a>
       </div>
     </section>
     <footer>
-      <span>PatchHound · MIT licensed · Requires Node 18+ and git</span>
-      <span><a href="https://github.com/sudo-py-dev/patchhound">GitHub</a> · <a href="example/summary.md">Example PR comment</a> · <a href="example/report.sarif">Example SARIF</a></span>
+      <span>CodeHawk · MIT licensed · Requires Node 18+ and git</span>
+      <span><a href="https://github.com/sudo-py-dev/codehawk">GitHub</a> · <a href="example/summary.md">Example PR comment</a> · <a href="example/report.sarif">Example SARIF</a></span>
     </footer>
   </div>
 </main>
@@ -529,7 +529,7 @@ header.hero .rv { transition-duration: .9s; }
 <script>
 (() => {
   const root = document.documentElement;
-  const KEY = 'patchhound:site-theme';
+  const KEY = 'codehawk:site-theme';
   const setTheme = (t) => {
     root.dataset.theme = t;
     document.querySelector('#theme use').setAttribute('href', t === 'dark' ? '#i-sun' : '#i-moon');

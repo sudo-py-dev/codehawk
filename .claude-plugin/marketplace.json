@@ -1,15 +1,15 @@
 {
-  "name": "patchhound",
+  "name": "codehawk",
   "owner": {
     "name": "sudo-py-dev",
     "url": "https://github.com/sudo-py-dev"
   },
   "metadata": {
-    "description": "PatchHound: security review of PRs, commits and whole repos for Claude Code."
+    "description": "CodeHawk: security review of PRs, commits and whole repos for Claude Code."
   },
   "plugins": [
     {
-      "name": "patchhound",
+      "name": "codehawk",
       "source": "./",
       "description": "Security and code-quality review of PRs, commits and repos, with a walkthrough, interactive report and permission-gated fixes.",
       "category": "security"

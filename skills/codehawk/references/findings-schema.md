@@ -1,4 +1,4 @@
-# `.patchhound/findings.json`
+# `.codehawk/findings.json`
 
 ```jsonc
 {

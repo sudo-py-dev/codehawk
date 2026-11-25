@@ -1,9 +1,9 @@
-// Shared helpers for PatchHound scripts. Zero dependencies: Node 18+ only.
+// Shared helpers for CodeHawk scripts. Zero dependencies: Node 18+ only.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const OUT_DIR = '.patchhound';
+export const OUT_DIR = '.codehawk';
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 export const CATEGORIES = {
   injection: 'Injection',
@@ -88,7 +88,7 @@ export function outDir(root) {
   const d = path.join(root, OUT_DIR);
   fs.mkdirSync(d, { recursive: true });
   const gi = path.join(d, '.gitignore');
-  if (!fs.existsSync(gi)) fs.writeFileSync(gi, '# PatchHound scan output\n*\n');
+  if (!fs.existsSync(gi)) fs.writeFileSync(gi, '# CodeHawk scan output\n*\n');
   return d;
 }
 
@@ -125,7 +125,7 @@ export function readAt(root, ref, rel) {
 
 export const MAX_BYTES = 1_500_000;
 
-const SKIP_DIRS = /(^|\/)(node_modules|vendor|bower_components|\.git|dist|build|out|target|\.next|\.nuxt|coverage|__pycache__|\.venv|venv|\.tox|\.gradle|\.idea|\.vscode|Pods|\.patchhound|\.terraform|third_party)(\/|$)/;
+const SKIP_DIRS = /(^|\/)(node_modules|vendor|bower_components|\.git|dist|build|out|target|\.next|\.nuxt|coverage|__pycache__|\.venv|venv|\.tox|\.gradle|\.idea|\.vscode|Pods|\.codehawk|\.terraform|third_party)(\/|$)/;
 const SKIP_FILES = /(\.min\.(js|css)|\.map|\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|go\.sum|composer\.lock|Gemfile\.lock)$/i;
 const BINARY = /\.(png|jpe?g|gif|webp|ico|bmp|tiff?|svg|pdf|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|so|dylib|dll|exe|bin|o|a|wasm|woff2?|ttf|otf|eot|mp[34]|mov|avi|webm|ogg|wav|flac|psd|sketch|fig|db|sqlite3?|parquet|pyc)$/i;
 
@@ -169,6 +169,6 @@ export function shortSha(s) { return s ? String(s).slice(0, 7) : ''; }
 
 export function fail(msg, json) {
   if (json) process.stdout.write(JSON.stringify({ ok: false, error: msg }) + '\n');
-  else process.stderr.write(`patchhound: ${msg}\n`);
+  else process.stderr.write(`codehawk: ${msg}\n`);
   process.exit(1);
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Run PatchHound's pattern rules over the files in .patchhound/scope.json.
-// Writes .patchhound/candidates.json (machine-readable) and .patchhound/worksheet.md, the
+// Run CodeHawk's pattern rules over the files in .codehawk/scope.json.
+// Writes .codehawk/candidates.json (machine-readable) and .codehawk/worksheet.md, the
 // reviewer's to-do list: every candidate to confirm or dismiss, plus the files that
 // deserve a full read even where no rule fired.
 //
@@ -18,7 +18,7 @@ const MAX = +(args.max || 1000);
 const FOCUS = ['security', 'quality'].includes(args.focus) ? args.focus : 'all';
 // Nitpicks (info-level quality) are for change reviews; on a whole repo they'd drown everything.
 const NITPICKS = !!args.nitpicks || scope0().mode !== 'repo';
-function scope0() { return readJson(path.join(path.resolve(args._[0] || '.'), '.patchhound', 'scope.json'), { mode: 'repo' }); }
+function scope0() { return readJson(path.join(path.resolve(args._[0] || '.'), '.codehawk', 'scope.json'), { mode: 'repo' }); }
 // Prompt-injection rules always run, whatever the focus: they protect the review itself.
 const ACTIVE = [
   ...RULES.filter((r) => FOCUS !== 'quality' || r.cat === 'prompt-injection'),
@@ -158,7 +158,7 @@ writeJson(path.join(dir, 'candidates.json'), {
 // ── worksheet.md ──
 const fmtRanges = (r) => (r ? r.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(', ') : 'whole file');
 const w = [];
-w.push(`# PatchHound review worksheet`);
+w.push(`# CodeHawk review worksheet`);
 w.push(``);
 w.push(`Scope: **${scope.label}** (${scope.mode}${scope.ref ? `, read from git object ${scope.ref.slice(0, 12)}` : ', read from working tree'})`);
 w.push(`Files in scope: ${scope.files.length}${unreadable ? ` (${unreadable} unreadable/binary)` : ''} · Candidates: ${candidates.length}${truncated ? ` (${truncated} more suppressed as repeats/over cap)` : ''}`);

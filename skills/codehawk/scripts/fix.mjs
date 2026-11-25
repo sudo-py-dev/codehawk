@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Apply PatchHound fix suggestions — only with the user's approval.
+// Apply CodeHawk fix suggestions — only with the user's approval.
 //
 //   node fix.mjs plan  <root> <SEC-001 SEC-004 … | --all> [--json]
 //       Shows exactly what would change and prints an approval token. Changes nothing.
@@ -107,9 +107,9 @@ if (cmd === 'plan') {
     }
     writes.push([p, lines.join(list[0].eol)]);
   }
-  try { for (const [p, body] of writes) { const t = p + '.patchhound-tmp'; fs.writeFileSync(t, body); fs.chmodSync(t, fs.statSync(p).mode & 0o7777); } }
-  catch (e) { for (const [p] of writes) fs.rmSync(p + '.patchhound-tmp', { force: true }); fail(`Could not write patched files (nothing was changed): ${e.message}`, JSON_OUT); }
-  for (const [p] of writes) fs.renameSync(p + '.patchhound-tmp', p);
+  try { for (const [p, body] of writes) { const t = p + '.codehawk-tmp'; fs.writeFileSync(t, body); fs.chmodSync(t, fs.statSync(p).mode & 0o7777); } }
+  catch (e) { for (const [p] of writes) fs.rmSync(p + '.codehawk-tmp', { force: true }); fail(`Could not write patched files (nothing was changed): ${e.message}`, JSON_OUT); }
+  for (const [p] of writes) fs.renameSync(p + '.codehawk-tmp', p);
   fs.rmSync(planFile, { force: true }); // a token works once
   const skipped = plan.items.filter((i) => i.status !== 'ready').map((i) => ({ id: i.id, status: i.status, reason: i.reason }));
   if (JSON_OUT) process.stdout.write(JSON.stringify({ ok: true, applied, skipped }) + '\n');

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Resolve WHAT to scan: a pull request, a commit, a commit range, a branch vs its base,
 // uncommitted changes, or the whole repository (optionally at a given commit).
-// Writes .patchhound/scope.json and prints a short summary.
+// Writes .codehawk/scope.json and prints a short summary.
 //
 //   node target.mjs <root> [--repo [--at <sha>]] [--pr <n>] [--commit <sha>]
 //                          [--range <a>..<b>] [--base <branch>] [--working] [--json]
@@ -82,8 +82,8 @@ if (args.pr) {
   let headSha = meta?.headRefOid && resolve(meta.headRefOid);
   if (!headSha) {
     // Fetch the PR head ref directly from the remote (works for forks too).
-    tryGit(root, 'fetch', '--quiet', 'origin', `+refs/pull/${n}/head:refs/patchhound/pr-${n}`);
-    headSha = resolve(`refs/patchhound/pr-${n}`) || (meta?.headRefOid && resolve(meta.headRefOid));
+    tryGit(root, 'fetch', '--quiet', 'origin', `+refs/pull/${n}/head:refs/codehawk/pr-${n}`);
+    headSha = resolve(`refs/codehawk/pr-${n}`) || (meta?.headRefOid && resolve(meta.headRefOid));
   }
   if (!headSha) fail(`Could not fetch PR #${n}. Is there an "origin" remote on GitHub, and is \`gh\` signed in?`, JSON_OUT);
   let baseRef = meta?.baseRefName ? `origin/${meta.baseRefName}` : defaultBranch();

@@ -1,5 +1,5 @@
 {
-  "name": "patchhound",
+  "name": "codehawk",
   "version": "0.2.0",
   "private": true,
   "description": "Security review plugin for Claude Code",

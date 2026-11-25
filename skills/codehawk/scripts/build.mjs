@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Turn .patchhound/findings.json (written by the reviewer) into:
-//   .patchhound/report.html   self-contained interactive report
-//   .patchhound/report.sarif  SARIF 2.1.0 for GitHub code scanning / IDEs
-//   .patchhound/summary.md    a PR-comment-ready summary
+// Turn .codehawk/findings.json (written by the reviewer) into:
+//   .codehawk/report.html   self-contained interactive report
+//   .codehawk/report.sarif  SARIF 2.1.0 for GitHub code scanning / IDEs
+//   .codehawk/summary.md    a PR-comment-ready summary
 // Validates the findings against the scope and the worksheet first.
 //
 //   node build.mjs <root> [--json] [--partial] [--open]
@@ -112,7 +112,7 @@ if (dupIds.length) errors.push(`duplicate finding ids: ${[...new Set(dupIds)].jo
 
 if (errors.length) {
   if (JSON_OUT) process.stdout.write(JSON.stringify({ ok: false, errors, warnings }) + '\n');
-  else { console.error(`patchhound: findings.json has ${errors.length} problem(s):`); for (const e of errors) console.error(`  ✗ ${e}`); for (const w of warnings) console.error(`  ! ${w}`); }
+  else { console.error(`codehawk: findings.json has ${errors.length} problem(s):`); for (const e of errors) console.error(`  ✗ ${e}`); for (const w of warnings) console.error(`  ! ${w}`); }
   process.exit(1);
 }
 
@@ -153,7 +153,7 @@ if (wt) {
 } else if (scope.mode !== 'repo') warnings.push('No "walkthrough": change reviews should summarize what the change does, file by file.');
 if (errors.length) {
   if (JSON_OUT) process.stdout.write(JSON.stringify({ ok: false, errors, warnings }) + '\n');
-  else { console.error(`patchhound: findings.json has ${errors.length} problem(s):`); for (const e of errors) console.error(`  ✗ ${e}`); }
+  else { console.error(`codehawk: findings.json has ${errors.length} problem(s):`); for (const e of errors) console.error(`  ✗ ${e}`); }
   process.exit(1);
 }
 
@@ -193,8 +193,8 @@ writeJson(path.join(dir, 'report.json'), data);
 const template = fs.readFileSync(path.join(here, '..', 'assets', 'report.html'), 'utf8');
 const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/[\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16));
 const html = template
-  .replace('__PATCHHOUND_TITLE__', () => `PatchHound · ${escapeHtml(scope.label)}`)
-  .replace('"__PATCHHOUND_DATA__"', () => json);
+  .replace('__CODEHAWK_TITLE__', () => `CodeHawk · ${escapeHtml(scope.label)}`)
+  .replace('"__CODEHAWK_DATA__"', () => json);
 fs.writeFileSync(path.join(dir, 'report.html'), html);
 
 // ── report.sarif ──
@@ -203,7 +203,7 @@ const sarifLevel = (f) => (f.kind === 'quality' && f.severity !== 'critical' ? (
 const SSEV = { critical: '9.5', high: '8.0', medium: '5.5', low: '3.0', info: '1.0' };
 const ruleIds = new Map();
 for (const f of findings) {
-  const rid = `patchhound/${f.category}${f.cwe ? '/' + f.cwe : ''}`;
+  const rid = `codehawk/${f.category}${f.cwe ? '/' + f.cwe : ''}`;
   if (!ruleIds.has(rid)) ruleIds.set(rid, {
     id: rid, name: f.categoryLabel, shortDescription: { text: `${f.categoryLabel}${f.cwe ? ` (${f.cwe})` : ''}` },
     helpUri: f.cwe ? `https://cwe.mitre.org/data/definitions/${f.cwe.replace(/\D/g, '')}.html` : undefined,
@@ -214,12 +214,12 @@ for (const f of findings) {
 const sarif = {
   $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0',
   runs: [{
-    tool: { driver: { name: 'PatchHound', informationUri: 'https://github.com/', version: '0.2.0', rules: [...ruleIds.values()] } },
+    tool: { driver: { name: 'CodeHawk', informationUri: 'https://github.com/', version: '0.2.0', rules: [...ruleIds.values()] } },
     results: findings.map((f) => ({
       ruleId: f._rule, level: sarifLevel(f),
       message: { text: `${f.title}: ${f.description}` },
       locations: [{ physicalLocation: { artifactLocation: { uri: f.file }, region: { startLine: f.line, endLine: f.endLine } } }],
-      partialFingerprints: { patchhoundId: `${f.file}:${f.category}:${f.title}` },
+      partialFingerprints: { codehawkId: `${f.file}:${f.category}:${f.title}` },
       properties: { kind: f.kind, severity: f.severity, confidence: f.confidence, ...(f.kind === 'security' ? { 'security-severity': SSEV[f.severity] } : {}) },
     })),
   }],
@@ -241,7 +241,7 @@ function detail(f, open = false) {
   if (f.fix) { md.push('```diff'); for (const l of f.fix.before) md.push(`- ${l}`); for (const l of f.fix.after) md.push(`+ ${l}`); md.push('```', ''); }
   md.push('</details>');
 }
-md.push(`## PatchHound review`, '');
+md.push(`## CodeHawk review`, '');
 md.push(`**Security ${grade}** (${score}/100) · **Code quality ${qualityGrade}** (${qualityScore}/100)  `);
 md.push(`${VERDICT[verdict]}  `);
 md.push(`<sub>${scope.label} · ${scope.files.length} files · ${cand.candidates.length} rule hits triaged · ${sec.length} security · ${qual.length} quality</sub>`, '');
@@ -268,7 +268,7 @@ if (nits.length) {
   md.push('', '</details>', '');
 }
 if (!findings.length) md.push('_No issues confirmed in this scope._');
-md.push('', `<sub>Generated by PatchHound · ${dismissed.reduce((n, d) => n + d.items.length, 0)} rule hits checked and dismissed.</sub>`);
+md.push('', `<sub>Generated by CodeHawk · ${dismissed.reduce((n, d) => n + d.items.length, 0)} rule hits checked and dismissed.</sub>`);
 fs.writeFileSync(path.join(dir, 'summary.md'), md.join('\n') + '\n');
 
 const reportPath = path.join(dir, 'report.html');
