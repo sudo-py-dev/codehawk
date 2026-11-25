@@ -51,7 +51,7 @@ export function listAllFiles(root, ref) {
 }
 
 /** Parse one dependency file. Returns [{ name, version, ecosystem, line, dev? }]. */
-export function parseDepFile(rel, text) {
+export function parseDepFile(rel, text, { includeOccurrences = false } = {}) {
   const hit = PARSERS.find(([re]) => re.test(rel));
   if (!hit || text == null) return [];
   const [, ecosystem, fn] = hit;
@@ -61,11 +61,13 @@ export function parseDepFile(rel, text) {
   return pkgs
     .filter((p) => p.name && p.version && /^[\w.+~:-]+$/.test(p.version))
     .map((p) => ({ ecosystem, ...p, name: p.name.trim(), version: p.version.trim() }))
-    .filter((p) => { const k = `${p.name}@${p.version}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    .filter((p) => { const k = `${p.name}@${p.version}`; if (includeOccurrences) return true; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 // ── helpers ──
 const lineOf = (lines, re, from = 0) => { for (let i = from; i < lines.length; i++) if (re.test(lines[i])) return i + 1; return 0; };
+// An npm alias can have a different installed name from the package in the registry.
+const npmAlias = (specifier) => specifier.match(/^npm:((?:@[^/@]+\/)?[^@]+)@(.+)$/);
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function parseNpmLock(text) {
@@ -74,7 +76,7 @@ function parseNpmLock(text) {
   const out = [];
   if (doc.packages) {
     const lineByKey = new Map();
-    lines.forEach((l, i) => { const m = l.match(/^\s*"(node_modules\/[^"]+)"\s*:\s*\{/); if (m && !lineByKey.has(m[1])) lineByKey.set(m[1], i + 1); });
+    lines.forEach((l, i) => { const m = l.match(/^\s*"([^"]*node_modules\/[^"]+)"\s*:\s*\{/); if (m && !lineByKey.has(m[1])) lineByKey.set(m[1], i + 1); });
     for (const [key, p] of Object.entries(doc.packages)) {
       if (!key || p.link || !p.version) continue;
       const name = p.name || key.slice(key.lastIndexOf('node_modules/') + 13);
@@ -86,7 +88,10 @@ function parseNpmLock(text) {
       for (const [name, p] of Object.entries(deps || {})) {
         const ln = lineOf(lines, new RegExp(`^\\s*"${esc(name)}"\\s*:\\s*\\{`), cursor);
         if (ln) cursor = ln;
-        if (p.version && !/^(file|link|git|github|https?):/.test(p.version)) out.push({ name, version: p.version, line: ln || 1, dev: !!p.dev });
+        const alias = typeof p.version === 'string' && npmAlias(p.version);
+        if (p.version && !/^(file|link|git|github|https?):/.test(p.version)) {
+          out.push({ name: alias ? alias[1] : name, version: alias ? alias[2] : p.version, line: ln || 1, dev: !!p.dev });
+        }
         walk(p.dependencies);
       }
     };
@@ -104,7 +109,8 @@ function parseYarnLock(text) {
     const spec = l.slice(0, -1).split(',')[0].trim().replace(/^"|"$/g, '');
     const at = spec.indexOf('@', 1);
     if (at < 0) continue;
-    const name = spec.slice(0, at);
+    const alias = npmAlias(spec.slice(at + 1));
+    const name = alias ? alias[1] : spec.slice(0, at);
     for (let j = i + 1; j < Math.min(lines.length, i + 12) && /^\s/.test(lines[j]); j++) {
       const m = lines[j].match(/^\s+version:?\s+"?([^"\s]+)"?/);
       if (m) { if (!/use\.local|^0\.0\.0-use/.test(m[1])) out.push({ name, version: m[1], line: i + 1 }); break; }
@@ -296,7 +302,7 @@ export function cyclonedx({ packages, vulns = [], projectName, toolVersion, ref 
       ratings: [adv.cvss?.score != null ? { score: adv.cvss.score, severity: adv.severity, method: 'CVSSv31', vector: adv.cvss.vector } : { severity: adv.severity, method: 'other' }],
       cwes: adv.cwes.map((c) => +c.replace(/\D/g, '')),
       description: adv.summary || undefined,
-      recommendation: adv.fixed ? `Upgrade to ${adv.fixed} or later.` : adv.malicious ? 'Remove this package and rotate any credentials on machines that installed it.' : undefined,
+      recommendation: adv.fixed ? `Advisory lists ${adv.fixed} as fixed for this affected range. Verify the version you install.` : adv.malicious ? 'Remove this package and rotate any credentials on machines that installed it.' : undefined,
       advisories: [{ url: adv.url }],
       published: adv.published || undefined,
       affects: [],

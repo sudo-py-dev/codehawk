@@ -1433,7 +1433,7 @@ function advisories(d) {
     <td class="sum">${esc(a.summary || '')}</td></tr>`).join('');
   return `<div class="d-section"><h4>${icon('shield')}Known vulnerabilities in <span class="mono">${esc(d.name)}@${esc(d.version)}</span>${d.dev ? ' <small class="muted">(dev dependency)</small>' : ''}</h4>
     <table class="adv"><thead><tr><th>Advisory</th><th>Severity</th><th>CVSS</th><th>Fixed in</th><th>Summary</th></tr></thead><tbody>${rows}</tbody></table>
-    ${d.fixTo ? `<p class="upgrade">${icon('wrench')}Upgrade <span class="mono">${esc(d.name)}</span> to <b class="mono">${esc(d.fixTo)}</b> or later to clear every advisory above that has a fix.</p>` : ''}
+    ${d.fixTo ? `<p class="upgrade">${icon('wrench')}Upgrade candidate for <span class="mono">${esc(d.name)}</span> <b class="mono">${esc(d.fixTo)}</b>. Recheck the exact version after upgrading.</p>` : ''}
     <p class="muted-note">From OSV.dev · ${esc(d.ecosystem)}${d.purl ? ` · <span class="mono">${esc(d.purl)}</span>` : ''}</p></div>`;
 }
 function standards() {

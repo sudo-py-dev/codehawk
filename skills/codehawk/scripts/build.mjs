@@ -230,6 +230,7 @@ const depNote = !deps ? null
 const readableFiles = cand.fileStats?.length ?? 0;
 const reviewedInScope = (cand.fileStats || []).filter((f) => reviewedSet.has(f.path)).length;
 const coverageNotes = [];
+if (deps?.truncated) coverageNotes.push(`OSV matched ${deps.truncated} advisories whose details were unavailable or exceeded the detail limit. Their IDs are included, but severity and fix guidance may be incomplete.`);
 if (reviewedInScope < readableFiles) coverageNotes.push(`Manual review recorded for ${reviewedInScope} of ${readableFiles} readable files in scope. Remaining files received automated triage only or were skipped.`);
 if (cand.unreadable) coverageNotes.push(`${cand.unreadable} file(s) could not be read as source.`);
 if (cand.truncated) coverageNotes.push(`${cand.truncated} automated match(es) were omitted by candidate limits.`);
@@ -306,7 +307,7 @@ const sarif = {
     ],
     results: findings.map((f) => ({
       ruleId: f._rule, level: sarifLevel(f),
-      message: { text: `${f.title}: ${f.description}${f.dep?.fixTo ? ` Upgrade ${f.dep.name} to ${f.dep.fixTo} or later.` : ''}` },
+      message: { text: `${f.title}: ${f.description}${f.dep?.fixTo ? ` Evaluate ${f.dep.name} ${f.dep.fixTo} as an upgrade and recheck the exact version.` : ''}` },
       locations: [{ physicalLocation: { artifactLocation: { uri: f.file }, region: { startLine: f.line, endLine: f.endLine } } }],
       partialFingerprints: { codehawkId: `${f.file}:${f.category}:${f.title}` },
       taxa: [

@@ -165,7 +165,7 @@ async function scanDependencies() {
   const inventory = [];
   const lockfiles = [];
   for (const file of depFiles) {
-    const pkgs = parseDepFile(file, readAt(root, scope.ref, file)).map((p) => ({ ...p, file, test: isTestDir(file) }));
+    const pkgs = parseDepFile(file, readAt(root, scope.ref, file), { includeOccurrences: scope.mode !== 'repo' }).map((p) => ({ ...p, file, test: isTestDir(file) }));
     if (!pkgs.length) continue;
     lockfiles.push({ file, ecosystem: pkgs[0].ecosystem, packages: pkgs.length });
     inventory.push(...pkgs);
@@ -209,6 +209,7 @@ async function scanDependencies() {
       const res = await lookup(toCheck);
       if (res.truncated) summary.truncated = res.truncated;
       const RANK = Object.fromEntries(SEVERITIES.map((s, i) => [s, i]));
+      let sourceFile, sourceLines;
       for (const p of toCheck) {
         const advs = res.byKey.get(keyOf(p));
         if (!advs?.length) continue;
@@ -216,7 +217,11 @@ async function scanDependencies() {
         for (const adv of advs) vulns.push({ pkg: p, adv });
         summary.vulnerable++;
         summary.advisories += advs.length;
-        candidates.push(depCandidate(p, advs));
+        if (p.file !== sourceFile) {
+          sourceFile = p.file;
+          sourceLines = (readAt(root, scope.ref, sourceFile) || '').split(/\r?\n/);
+        }
+        candidates.push(depCandidate(p, advs, sourceLines[p.line - 1]));
       }
     } catch (e) {
       summary.status = 'error';
@@ -229,14 +234,14 @@ async function scanDependencies() {
   return summary;
 }
 
-function depCandidate(p, advs) {
+function depCandidate(p, advs, sourceLine) {
   const malicious = advs.some((a) => a.malicious);
   const ids = advs.map((a) => a.cves[0] || a.id);
   const fixes = advs.map((a) => a.fixed).filter(Boolean).sort(compareVersions);
-  const fixTo = fixes.length ? fixes[fixes.length - 1] : null; // one upgrade that clears every listed advisory that has a fix
+  const fixTo = fixes.length ? fixes[fixes.length - 1] : null;
   const unfixed = advs.filter((a) => !a.fixed && !a.malicious).length;
-  const line = (readAt(root, scope.ref, p.file) || '').split(/\r?\n/)[p.line - 1] || `${p.name} ${p.version}`;
-  const listed = advs.slice(0, 6).map((a) => `${a.cves[0] || a.id}${a.cvss?.score != null ? ` CVSS ${a.cvss.score}` : ''} ${a.severity}${a.summary ? `: ${a.summary.slice(0, 110)}` : ''}${a.malicious ? '' : a.fixed ? ` (fixed in ${a.fixed})` : ' (no fix yet)'}`).join('; ');
+  const line = sourceLine || `${p.name} ${p.version}`;
+  const listed = advs.slice(0, 6).map((a) => `${a.cves[0] || a.id}${a.cvss?.score != null ? ` CVSS ${a.cvss.score}` : ''} ${a.severity}${a.summary ? `: ${a.summary.slice(0, 110)}` : ''}${a.malicious ? '' : a.fixed ? ` (fixed in ${a.fixed})` : ' (no fix identified)'}`).join('; ');
   return {
     rule: malicious ? 'dep-malicious' : 'dep-vuln', kind: 'security',
     title: malicious ? `Known malicious package: ${p.name}@${p.version}` : `${p.name}@${p.version} has ${advs.length} known vulnerabilit${advs.length > 1 ? 'ies' : 'y'} (${ids.slice(0, 3).join(', ')}${ids.length > 3 ? ', …' : ''})`,
@@ -244,7 +249,7 @@ function depCandidate(p, advs) {
     file: p.file, line: p.line, col: 1, code: line.trim().slice(0, 220),
     hint: malicious
       ? `OSV lists ${p.name}@${p.version} as malicious (${ids.join(', ')}). Confirm the name and version, then report it as critical: remove it and rotate credentials on every machine that installed it.`
-      : `${listed}${advs.length > 6 ? `; +${advs.length - 6} more` : ''}. Check: is ${p.name} shipped or only a build/test tool${p.dev ? ' (the lockfile marks it dev-only)' : ''}, and is the vulnerable feature reachable from this code? Severity comes from the advisory; adjust it to the real exposure. Fix: ${fixTo ? `upgrade to ${fixTo} or later` : 'no fixed release yet — replace it or mitigate'}${unfixed && fixTo ? ` (${unfixed} advisory${unfixed > 1 ? 'ies have' : ' has'} no fix yet)` : ''}.`,
+      : `${listed}${advs.length > 6 ? `; +${advs.length - 6} more` : ''}. Check: is ${p.name} shipped or only a build/test tool${p.dev ? ' (the lockfile marks it dev-only)' : ''}, and is the vulnerable feature reachable from this code? Severity comes from the advisory; adjust it to the real exposure. Fix: ${fixTo ? `evaluate ${fixTo} as an upgrade and recheck the exact version` : 'no fixed release identified for the affected range'}${unfixed && fixTo ? ` (${unfixed} advisor${unfixed === 1 ? 'y' : 'ies'} without an identified fix)` : ''}.`,
     test: p.test || undefined,
     dep: { name: p.name, version: p.version, ecosystem: p.ecosystem, purl: purlOf(p), dev: !!p.dev, fixTo, malicious, advisories: advs.slice(0, 25) },
   };
@@ -403,6 +408,6 @@ function depsLine(d) {
     case 'nothing-changed': return `${files}; this change doesn't touch any pinned version, so none were looked up.${sbom}`;
     case 'offline': return `${files}. **Not checked for known vulnerabilities (--offline).** Say so in notes.${sbom}`;
     case 'error': return `${files}. **The OSV.dev lookup failed (${d.error}), so known vulnerabilities were not checked.** Say so in notes.${sbom}`;
-    default: return `${files}; checked ${d.checked}${d.scope === 'changed' ? ' changed' : ''} against OSV.dev: **${d.vulnerable} vulnerable** (${d.advisories} advisor${d.advisories === 1 ? 'y' : 'ies'})${d.vulnerable ? ', listed under 2a as `vulnerable-dependency`' : ''}.${d.truncated ? ` Details for ${d.truncated} advisories were not fetched (cap).` : ''}${sbom}`;
+    default: return `${files}; checked ${d.checked}${d.scope === 'changed' ? ' changed' : ''} against OSV.dev: **${d.vulnerable} vulnerable** (${d.advisories} advisor${d.advisories === 1 ? 'y' : 'ies'})${d.vulnerable ? ', listed under 2a as `vulnerable-dependency`' : ''}.${d.truncated ? ` Details for ${d.truncated} advisories were unavailable or skipped due to the detail limit.` : ''}${sbom}`;
   }
 }

@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { summarize } from '../skills/codehawk/scripts/lib/osv.mjs';
+import { parseDepFile } from '../skills/codehawk/scripts/lib/deps.mjs';
 import { S, run, runEnv, git, repo, readList, cands } from './helpers/fixture.mjs';
 
 const ADV = {
@@ -18,7 +20,8 @@ const ADV = {
   'MAL-2099-1': { id: 'MAL-2099-1', summary: 'Malicious code in cors (npm)', affected: [{ package: { name: 'cors', ecosystem: 'npm' } }] },
 };
 const VULNS = { 'npm|lodash': ['GHSA-35jh-r3h4-6jhm', 'GHSA-29mw-wpgm-hmr9'], 'PyPI|PyYAML': ['GHSA-8q59-q68h-6hv4', 'PYSEC-2021-142'], 'npm|cors': ['MAL-2099-1'] };
-async function mockOsv() {
+const defaultResult = (q) => ({ vulns: (VULNS[`${q.package.ecosystem}|${q.package.name}`] || []).map((id) => ({ id })) });
+async function mockOsv(result = defaultResult) {
   const bodies = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -27,7 +30,7 @@ async function mockOsv() {
       res.setHeader('content-type', 'application/json');
       if (req.method === 'POST' && req.url === '/querybatch') {
         const q = JSON.parse(body); bodies.push(q);
-        return res.end(JSON.stringify({ results: q.queries.map((x) => ({ vulns: (VULNS[`${x.package.ecosystem}|${x.package.name}`] || []).map((id) => ({ id })) })) }));
+        return res.end(JSON.stringify({ results: q.queries.map(result) }));
       }
       const m = req.url.match(/^\/vulns\/(.+)$/);
       if (m && ADV[decodeURIComponent(m[1])]) return res.end(JSON.stringify(ADV[decodeURIComponent(m[1])]));
@@ -137,4 +140,77 @@ test('an offline or failed CVE check is reported, never silent', () => {
   run('build.mjs', dir);
   const data = JSON.parse(fs.readFileSync(path.join(dir, '.codehawk', 'report.json'), 'utf8'));
   assert.ok(data.notes.some((n) => /OSV\.dev\) failed/.test(n)));
+});
+
+test('OSV queries the exact installed version and follows only paginated entries', async () => {
+  const osv = await mockOsv((q) => {
+    if (q.package.name !== 'lodash') return {};
+    if (q.version !== '4.17.20') return {};
+    const [first, second] = VULNS['npm|lodash'].map((id) => ({ id }));
+    return q.page_token ? { vulns: [first, second] } : { vulns: [first], next_page_token: 'more-lodash' };
+  });
+  try {
+    const dir = repo();
+    run('target.mjs', dir, '--repo');
+    await runEnv({ CODEHAWK_OSV_URL: osv.url }, 'scan.mjs', dir);
+    assert.equal(depsOf(dir).vulnerable, 1);
+    assert.equal(cands(dir).find((c) => c.dep?.name === 'lodash').dep.advisories.length, 2);
+    assert.equal(osv.bodies.length, 2);
+    assert.deepEqual(osv.bodies[1].queries, [
+      { package: { name: 'lodash', ecosystem: 'npm' }, version: '4.17.20', page_token: 'more-lodash' },
+    ]);
+
+    const lock = path.join(dir, 'package-lock.json');
+    fs.writeFileSync(lock, fs.readFileSync(lock, 'utf8').replaceAll('4.17.20', '4.17.21'));
+    git(dir, 'commit', '-qam', 'update pinned version');
+    run('target.mjs', dir, '--repo');
+    await runEnv({ CODEHAWK_OSV_URL: osv.url }, 'scan.mjs', dir);
+    assert.equal(depsOf(dir).vulnerable, 0);
+  } finally { osv.close(); }
+});
+
+test('fixed release guidance uses the installed version’s affected interval', () => {
+  const pkg = { name: 'example', ecosystem: 'npm' };
+  const advisory = { id: 'TEST-1', affected: [{ package: pkg, ranges: [{ type: 'SEMVER', events: [
+    { introduced: '1.0.0' }, { fixed: '1.5.0' },
+    { introduced: '2.0.0-beta.2' }, { fixed: '2.0.0-beta.12' },
+    { introduced: '3.0.0' }, { last_affected: '3.1.0' },
+    { introduced: '4.0.0' }, { fixed: '4.1.0' },
+  ] }] }] };
+  for (const [version, fixed] of [['1.2.0', '1.5.0'], ['2.0.0-beta.10', '2.0.0-beta.12'], ['3.1.0', null]]) {
+    assert.equal(summarize(advisory, { ...pkg, version }).fixed, fixed);
+  }
+});
+
+test('npm aliases use the real registry name and exact pinned version', () => {
+  const npmLock = JSON.stringify({ dependencies: { alias: { version: 'npm:@scope/pkg@1.2.3' } } });
+  const yarnLock = '"alias@npm:@scope/pkg@^1.2.0":\n  version "1.2.3"\n';
+  for (const [name, contents] of [['package-lock.json', npmLock], ['yarn.lock', yarnLock]]) {
+    const [pkg] = parseDepFile(name, contents);
+    assert.equal(pkg.name, '@scope/pkg');
+    assert.equal(pkg.version, '1.2.3');
+  }
+});
+
+test('change scans keep the changed lockfile occurrence of a repeated package version', async () => {
+  const osv = await mockOsv();
+  try {
+    const dir = repo();
+    const lock = path.join(dir, 'package-lock.json');
+    const doc = JSON.parse(fs.readFileSync(lock, 'utf8'));
+    const nested = 'node_modules/cors/node_modules/lodash';
+    doc.packages[nested] = { version: '4.17.19' };
+    const write = () => fs.writeFileSync(lock, JSON.stringify(doc, null, 2) + '\n');
+    write();
+    git(dir, 'commit', '-qam', 'add a nested copy');
+    doc.packages[nested].version = '4.17.20';
+    write();
+    git(dir, 'commit', '-qam', 'change the nested copy');
+    run('target.mjs', dir, '--commit', 'HEAD');
+    await runEnv({ CODEHAWK_OSV_URL: osv.url }, 'scan.mjs', dir);
+    const matches = cands(dir).filter((c) => c.dep?.name === 'lodash');
+    assert.equal(matches.length, 1);
+    assert.match(matches[0].code, /cors\/node_modules\/lodash/);
+    assert.equal(matches[0].dep.version, '4.17.20');
+  } finally { osv.close(); }
 });
