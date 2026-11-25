@@ -17,9 +17,11 @@ allowed-tools:
 
 # CodeHawk
 
-Arguments: $ARGUMENTS
+Use the scope and options from the user's request or the invoking slash command. In Codex, invoke this skill with `$codehawk` and state the scope in the request.
 
-Run scripts from `${CLAUDE_SKILL_DIR}/scripts` (use the skill directory if the variable is unavailable). If arguments start with `fix`, read [fix-loop.md](references/fix-loop.md) and follow it.
+Run the bundled scripts by absolute path. In Claude Code, use `${CLAUDE_SKILL_DIR}/scripts`. In Codex, resolve `scripts/` relative to the installed `SKILL.md` path supplied by Codex. Pass the repository under review separately as the root argument.
+
+If the user requests fixes for existing findings, read [fix-loop.md](references/fix-loop.md) and follow it.
 
 ## Trust and scope
 

@@ -872,9 +872,9 @@ body::before { display: none; }
 
 <div class="tray" id="tray" aria-live="polite"><div class="tray-in">
   <span class="cnt" id="tray-n">0</span>
-  <span class="txt"><b id="tray-title">Fixes queued</b><small>Claude shows every change and asks before editing. Nothing is committed or merged without your OK.</small></span>
+  <span class="txt"><b id="tray-title">Fixes queued</b><small>CodeHawk shows every change and asks before editing. Nothing is committed or merged without your OK.</small></span>
   <button class="btn ghost" id="tray-clear">Clear</button>
-  <button class="btn primary" id="tray-copy"><svg class="i"><use href="#i-wrench"/></svg>Copy fix command</button>
+  <button class="btn primary" id="tray-copy"><svg class="i"><use href="#i-wrench"/></svg>Copy fix request</button>
 </div></div>
 <div class="live-note" id="live-note" role="status" aria-live="polite"><span>A new scan finished.</span><button class="btn primary" onclick="location.reload()">Reload report</button></div>
 <div class="toast" id="toast" role="status" aria-live="polite"><svg class="i"><use href="#i-check"/></svg><span></span></div>
@@ -932,7 +932,7 @@ function toggleQueue(id) {
 }
 function fixCommand() {
   const ids = D.findings.map((f) => f.id).filter((id) => queue.has(id));
-  return `/codehawk:fix ${ids.join(' ')}`;
+  return `Use CodeHawk to plan fixes for ${ids.join(', ')} in the latest report. Show me the changes for approval before applying them.`;
 }
 function tray() {
   const n = queue.size;
@@ -945,7 +945,7 @@ function tray() {
   if (qb) { const on = queue.has(qb.dataset.id); qb.classList.toggle('queued', on); qb.innerHTML = on ? `${icon('check')}Queued for fix` : `${icon('wrench')}Queue fix`; qb.setAttribute('aria-pressed', on); }
 }
 $('#tray-clear').onclick = () => { queue.clear(); saveQueue(); tray(); toast('Fix queue cleared'); };
-$('#tray-copy').onclick = () => copy(fixCommand(), 'Command copied — paste it into Claude Code');
+$('#tray-copy').onclick = () => copy(fixCommand(), 'Fix request copied');
 
 /* ── filter state (in the URL hash so it's shareable) ── */
 const state = { sev: new Set(), cat: null, file: null, q: '', status: 'open', sel: null, kind: 'all' };
@@ -1363,7 +1363,7 @@ function renderDetail() {
         <button data-act="accept" aria-pressed="${t === 'accepted'}">Accepted</button>
       </span>`}
     </div>
-    ${r ? '' : `<div class="fix-note">${icon('lock')}${f.fix ? 'Has a ready patch.' : 'Claude will write this fix.'} Queued fixes are applied only after you approve each change; nothing is committed or merged automatically.</div>`}
+    ${r ? '' : `<div class="fix-note">${icon('lock')}${f.fix ? 'Has a ready patch.' : 'This fix needs a proposed change.'} Queued fixes are applied only after you approve each change; nothing is committed or merged automatically.</div>`}
     ${t && !r ? `<div class="triage-note">${icon('check')}You marked this as ${t === 'fp' ? 'a false positive' : 'an accepted risk'}. Stored only in this browser.</div>` : ''}
 
     <div class="d-section"><h4>What's wrong</h4><p>${rich(f.description)}</p></div>
@@ -1385,7 +1385,7 @@ function renderDetail() {
   det.querySelector('.actions').onclick = (e) => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const a = b.dataset.act;
-    if (a === 'prompt') copy(fixPrompt(f), 'Fix prompt copied — paste it to Claude');
+    if (a === 'prompt') copy(fixPrompt(f), 'Fix prompt copied');
     else if (a === 'patch') copy(f.fix.after.join('\n'), 'Fixed code copied');
     else if (a === 'link') copy(location.href.split('#')[0] + '#id=' + encodeURIComponent(f.id), 'Link copied');
     else if (a === 'queue') toggleQueue(f.id);

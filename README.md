@@ -7,7 +7,7 @@
 
 <p align="center">
   <b>Reviews your PRs, commits and repos for security holes and code quality, then patches them with your approval.</b><br>
-  A code reviewer for Claude Code.
+  A code reviewer for Codex and Claude Code.
 </p>
 
 <p align="center">
@@ -28,6 +28,24 @@
 ---
 
 ## Quick start
+
+### Codex
+
+```bash
+codex plugin marketplace add sudo-py-dev/codehawk
+codex plugin add codehawk@codehawk
+```
+
+Open the repository you want to review in a new Codex chat or CLI session. For example, ask:
+
+- `$codehawk Review my current branch.`
+- `$codehawk Review pull request 42.`
+- `$codehawk Review HEAD for code quality only.`
+- `$codehawk Plan fixes for SEC-001 and CQ-002 from the latest report.`
+
+To install from a local checkout, pass its path to `codex plugin marketplace add` instead of the GitHub repository name.
+
+### Claude Code
 
 ```bash
 claude plugin marketplace add sudo-py-dev/codehawk
@@ -120,7 +138,7 @@ Languages: JavaScript / TypeScript, Python, Go, Java / Kotlin, C#, PHP, Ruby, Ru
 
 ## How it works
 
-The scripts handle the mechanical work and Claude handles the judgment.
+The scripts handle the mechanical work and the reviewing agent handles the judgment.
 
 1. **Scope.** `target.mjs` works out exactly which files and lines to review (PR, commit, range, branch, working tree or whole repo) and how far the code can be trusted.
 2. **Rules.** `scan.mjs` runs the security and quality rules plus structural checks (function length, complexity, nesting, N+1, duplication, late size limits, parser skips, edited allow-lists) on those lines, and looks up pinned dependency versions in OSV.dev. It writes a worksheet of every hit to check, the files that deserve a full read, and for change reviews the files whose old code must be compared with the new.
@@ -168,7 +186,7 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 - **All / Security / Quality tabs.** Quality findings are labeled *Likely bug*, *Should fix*, *Refactor* or *Nitpick*.
 - **Clickable breakdowns.** Filter by severity, category or riskiest file.
 - **Each finding** shows the highlighted code, its impact, a concrete attack scenario and the fix as a diff.
-- **Queue fix** collects fixes into a single `/codehawk:fix …` command. **Copy fix prompt** hands one finding to Claude with full context.
+- **Queue fix** collects selected findings into one fix request you can paste into Codex or Claude Code. **Copy prompt** copies the context for one finding.
 - **Resolution status, live.** Keep the report open while Claude fixes things: each finding turns green and slides into **Resolved** as soon as it's fixed, no reload needed. In the Claude desktop app the report is served from a private local server (`serve.mjs`: 127.0.0.1 only, secret URL, read-only, stops when idle), so updates appear instantly in the preview pane. Each one shows its fix checklist (code changed, problem gone, fixed everywhere, no regression) with the evidence for every box, and the list shows *Verified* or how many checks are left (*2/4*). The header shows progress and the grades you'd get once the fixes land, and the PR comment and SARIF leave resolved findings out.
 - **Triage.** Mark findings Open, False positive or Accepted from the controls below the fix buttons. Use the *To do*, *Verified*, *Triaged* and *All* filters to switch views. Triage marks are saved in your browser only.
 - **Checked and cleared.** Lists every dismissed hit with its reason, so you can see the review actually happened.
