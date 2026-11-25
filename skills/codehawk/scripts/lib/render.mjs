@@ -12,18 +12,25 @@ import { readJson, writeJson, QUALITY_LEVEL } from './common.mjs';
 import { cweUrl } from './taxonomy.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATE = path.join(here, '..', '..', 'assets', 'report.html');
+const ASSETS = path.join(here, '..', '..', 'assets');
 
 // ── scoring ──
 const CM = { high: 1, medium: 0.75, low: 0.5 };
 const SEC_W = { critical: 30, high: 15, medium: 6, low: 2, info: 0 };
 const QUAL_W = { critical: 25, high: 12, medium: 4, low: 1.5, info: 0.25 };
 export const toGrade = (n) => (n >= 90 ? 'A' : n >= 80 ? 'B' : n >= 65 ? 'C' : n >= 45 ? 'D' : 'F');
-const scoreOf = (list, W) => Math.max(0, Math.round(100 - list.reduce((s, f) => s + W[f.severity] * (CM[f.confidence] ?? CM.medium), 0)));
+export const deductionLimit = (f) => (f.kind === 'quality' ? QUAL_W : SEC_W)[f.severity];
+export const deductionOf = (f) => f.scoreDeduction ?? deductionLimit(f) * (CM[f.confidence] ?? CM.medium);
+const scoreOf = (list) => Math.max(0, Math.round(100 - list.reduce((sum, f) => sum + deductionOf(f), 0)));
 export function scoreFindings(findings) {
-  const score = scoreOf(findings.filter((f) => f.kind === 'security'), SEC_W);
-  const qualityScore = scoreOf(findings.filter((f) => f.kind === 'quality'), QUAL_W);
+  const score = scoreOf(findings.filter((f) => f.kind === 'security'));
+  const qualityScore = scoreOf(findings.filter((f) => f.kind === 'quality'));
   return { score, grade: toGrade(score), qualityScore, qualityGrade: toGrade(qualityScore) };
+}
+
+function verdictOf(findings) {
+  if (findings.some((f) => f.severity === 'critical' || (f.kind === 'security' && f.severity === 'high' && f.confidence !== 'low'))) return 'block';
+  return findings.some((f) => ['high', 'medium'].includes(f.severity)) ? 'review' : 'pass';
 }
 
 // ── resolutions ──
@@ -48,7 +55,7 @@ export function loadResolutions(dir, scanId) {
 export function saveResolutions(dir, res) { writeJson(path.join(dir, 'resolutions.json'), res); }
 
 // Attach each finding's resolution (only when its fingerprint still matches, so a reused id from a
-// different finding never inherits a status) and compute progress plus the projected grades.
+// different finding never inherits a status), then recompute the current scores.
 export function applyResolutions(data, res) {
   for (const f of data.findings) {
     const r = res.items[f.id];
@@ -56,16 +63,20 @@ export function applyResolutions(data, res) {
     const passed = stepsPassed(r.steps);
     f.resolution = { status: 'resolved', method: r.method, steps: r.steps || {}, passed, verified: passed === FIX_STEPS.length, note: r.note || '', at: r.at, verifiedAt: r.verifiedAt || null };
   }
+  for (const f of data.findings) f.scoreDeduction = deductionOf(f);
+  data.scanScores = scoreFindings(data.findings);
+  const current = data.findings.filter((f) => !f.resolution?.verified);
+  const scores = scoreFindings(current);
+  Object.assign(data, scores);
+  data.verdict = verdictOf(current);
   const done = data.findings.filter((f) => f.resolution);
   const track = (k) => { const all = data.findings.filter((f) => f.kind === k); return { total: all.length, resolved: all.filter((f) => f.resolution).length }; };
   const verified = done.filter((f) => f.resolution.verified).length;
   data.newIssues = Array.isArray(res.newIssues) ? res.newIssues : [];
   data.progress = {
     total: data.findings.length, resolved: done.length, verified, attention: done.length - verified, open: data.findings.length - done.length,
-    newIssues: data.newIssues.length,
+    scores, newIssues: data.newIssues.length,
     security: track('security'), quality: track('quality'),
-    // Grades once the verified fixes land: only 4/4 fixes count, so the number isn't optimistic.
-    projected: verified ? scoreFindings(data.findings.filter((f) => !f.resolution?.verified)) : null,
   };
   data.liveRev = Date.now();
   return data;
@@ -75,12 +86,13 @@ export function applyResolutions(data, res) {
 // live.js: the open report re-loads this small script every couple of seconds (a <script> tag
 // works from file://, fetch doesn't) and animates whatever changed, so no reload is needed.
 function writeLive(dir, data) {
-  const msg = { scanId: data.meta.scanId || null, rev: data.liveRev || Date.now(), progress: data.progress, newIssues: data.newIssues || [], resolutions: Object.fromEntries(data.findings.map((f) => [f.id, f.resolution || null])) };
+  const { score, grade, qualityScore, qualityGrade, verdict } = data;
+  const msg = { score, grade, qualityScore, qualityGrade, verdict, scanId: data.meta.scanId || null, rev: data.liveRev || Date.now(), progress: data.progress, newIssues: data.newIssues || [], resolutions: Object.fromEntries(data.findings.map((f) => [f.id, f.resolution || null])) };
   const json = JSON.stringify(msg).replace(/</g, '\\u003c').replace(/[\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16));
   fs.writeFileSync(path.join(dir, 'live.js'), `window.__codehawkLive && window.__codehawkLive(${json});\n`);
 }
 
-export function renderOutputs(dir, data) {
+export function renderOutputs(dir, data, { live = true } = {}) {
   writeJson(path.join(dir, 'report.json'), data);
   // Code scanning should reflect what's still open: only fully verified fixes leave report.sarif;
   // a resolution that failed any check stays in the export.
@@ -90,14 +102,20 @@ export function renderOutputs(dir, data) {
     for (const run of sarif.runs) run.results = run.results.filter((r) => !resolved.has(r.properties?.findingId));
     writeJson(path.join(dir, 'report.sarif'), sarif);
   }
-  const template = fs.readFileSync(TEMPLATE, 'utf8');
-  const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/[\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16));
-  const html = template
-    .replace('__CODEHAWK_TITLE__', () => `CodeHawk · ${escapeHtml(data.meta.label)}`)
-    .replace('"__CODEHAWK_DATA__"', () => json);
+  const readAsset = (name) => fs.readFileSync(path.join(ASSETS, name), 'utf8');
+  const replacements = {
+    __CODEHAWK_TITLE__: `CodeHawk · ${escapeHtml(data.meta.label)}`,
+    __CODEHAWK_STYLES__: readAsset('report.css'),
+    __CODEHAWK_SCRIPT__: readAsset('report.js'),
+    '"__CODEHAWK_DATA__"': JSON.stringify(data).replace(/</g, '\\u003c').replace(/[\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16)),
+  };
+  const html = readAsset('report.html').replace(
+    /__CODEHAWK_(?:TITLE|STYLES|SCRIPT)__|"__CODEHAWK_DATA__"/g,
+    (placeholder) => replacements[placeholder],
+  );
   fs.writeFileSync(path.join(dir, 'report.html'), html);
   fs.writeFileSync(path.join(dir, 'summary.md'), summaryMarkdown(data));
-  writeLive(dir, data);
+  if (live) writeLive(dir, data);
   return { report: path.join(dir, 'report.html'), sarif: path.join(dir, 'report.sarif'), summary: path.join(dir, 'summary.md') };
 }
 
@@ -114,7 +132,7 @@ function summaryMarkdown(data) {
   const qual = open.filter((f) => f.kind === 'quality');
   function detail(f, isOpen = false) {
     md.push(`<details${isOpen ? ' open' : ''}><summary>${LABEL(f)} <b>${escapeHtml(f.title)}</b> — ${loc(f).replace(/</g, '&lt;')}${f.cwe ? ` · ${f.cwe}` : ''}${f.owasp ? ` · OWASP ${f.owasp.slice(0, 3)}` : ''}</summary>`, '');
-    md.push(f.description, '');
+    md.push(f.description, '', `**Score deduction:** ${f.scoreDeduction} points.`, '');
     if (f.cwe) md.push(`<sub>[${f.cwe}${f.cweName ? ` ${escapeHtml(f.cweName)}` : ''}](${cweUrl(f.cwe)})${f.top25 ? ` · CWE Top 25 #${f.top25}` : ''}${f.owasp ? ` · OWASP ${f.owasp} ${f.owaspName}` : ''}</sub>`, '');
     if (f.dep?.advisories?.length) {
       md.push(`**Advisories for \`${f.dep.name}@${f.dep.version}\`:**`, '');
@@ -133,9 +151,7 @@ function summaryMarkdown(data) {
   md.push(`${VERDICT[verdict]}  `);
   md.push(`<sub>${data.meta.label} · ${data.meta.filesScanned} files · ${data.meta.candidates} rule hits triaged · ${data.kindCounts.security} security · ${data.kindCounts.quality} quality</sub>`, '');
   if (progress?.resolved) {
-    const p = progress.projected;
     md.push(`**${progress.verified} of ${progress.total} fixed and verified** · ${progress.attention} need attention · ${progress.open} open${progress.newIssues ? ` · ${progress.newIssues} new since the scan` : ''}`, '');
-    if (p) md.push(`After the verified fixes: Security **${p.grade}** (${p.score}/100) · Code quality **${p.qualityGrade}** (${p.qualityScore}/100)`, '');
   }
   {
     const ow = (standards?.owasp || []).filter((o) => o.count).map((o) => `${o.id.slice(0, 3)} ${o.name} ×${o.count}`);
@@ -149,7 +165,7 @@ function summaryMarkdown(data) {
     const bits = [ow.length && `**OWASP Top 10:** ${ow.join(' · ')}`, t25.length && `**CWE Top 25:** ${t25.join(', ')}`, dl && `**Dependencies:** ${dl}`].filter(Boolean);
     if (bits.length) md.push(bits.join('  \n'), '');
   }
-  if (data.summary) md.push(data.summary, '');
+  if (data.summary) md.push(`**At scan time.** ${data.summary}`, '');
   if (data.meta.trust.level !== 'trusted' || data.meta.injectionHits) {
     md.push(`> [!WARNING]`, `> Reviewed code from an untrusted source${data.meta.injectionHits ? ` and found ${data.meta.injectionHits} line(s) of text aimed at AI reviewers or hidden characters` : ''}. AI-assisted reviews can be manipulated by prompt injection; a clean result is not a guarantee. Have a human check anything security-critical.`, '');
   }

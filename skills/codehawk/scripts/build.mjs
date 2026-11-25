@@ -12,7 +12,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { parseArgs, outDir, readJson, readAt, fail, SEVERITIES, CATEGORIES, kindOf, toolVersion, EVIDENCE } from './lib/common.mjs';
-import { scoreFindings, loadResolutions, applyResolutions, renderOutputs } from './lib/render.mjs';
+import { deductionLimit, loadResolutions, applyResolutions, renderOutputs } from './lib/render.mjs';
 import { CATEGORY_CWE, CWE_TOP25_2024, OWASP_2021, owaspFor, cweName, cweUrl, top25Rank } from './lib/taxonomy.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -58,6 +58,10 @@ const findings = (doc.findings || []).map((f, i) => {
   if (f.severity && !SEVERITIES.includes(f.severity)) errors.push(`${where}: severity must be one of ${SEVERITIES.join(', ')}`);
   if (f.category && !CATEGORIES[f.category]) errors.push(`${where}: unknown category "${f.category}" (use one of ${Object.keys(CATEGORIES).join(', ')})`);
   if (f.confidence && !CONF.includes(f.confidence)) errors.push(`${where}: confidence must be high, medium or low`);
+  const maxDeduction = deductionLimit({ kind: kindOf(f.category), severity: f.severity });
+  if (f.scoreDeduction !== undefined && (!Number.isFinite(f.scoreDeduction) || f.scoreDeduction < 0 || f.scoreDeduction > maxDeduction)) {
+    errors.push(`${where}: scoreDeduction must be a number between 0 and ${maxDeduction ?? 'the severity limit'}`);
+  }
   for (const id of f.candidates || []) account(id, where);
   // Standards: every finding gets a CWE (reviewer's, else its rule's, else its category's);
   // security findings also get an OWASP Top 10 (2021) category.
@@ -88,7 +92,7 @@ const findings = (doc.findings || []).map((f, i) => {
     id: f.id || null,
     title: f.title, kind: kindOf(f.category), severity: f.severity, category: f.category, categoryLabel: CATEGORIES[f.category] || f.category,
     cwe, cweName: cweName(cwe), top25: top25Rank(cwe), owasp, owaspName: owasp ? OWASP_2021[owasp] : null, confidence: f.confidence || 'medium',
-    dep,
+    dep, scoreDeduction: f.scoreDeduction,
     file: f.file, line, endLine, lang: scope.files.find((x) => x.path === f.file)?.lang || 'text',
     description: f.description, impact: f.impact || '', exploit: f.exploit || '', fixText: f.fix,
     references: f.references || [], candidates: f.candidates || [], source: (f.candidates || []).length ? 'rule + review' : 'review',
@@ -184,11 +188,8 @@ findings.sort((a, b) => (a.kind === 'quality') - (b.kind === 'quality') || SEV_R
 // Two grades: security (attack surface) and code quality (bugs, robustness, maintainability).
 const sec = findings.filter((f) => f.kind === 'security');
 const qual = findings.filter((f) => f.kind === 'quality');
-const { score, grade, qualityScore, qualityGrade } = scoreFindings(findings);
 const counts = Object.fromEntries(SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length]));
 const kindCounts = { security: sec.length, quality: qual.length, nitpicks: qual.filter((f) => f.severity === 'info').length };
-const verdict = sec.some((f) => f.severity === 'critical' || (f.severity === 'high' && f.confidence !== 'low')) || qual.some((f) => f.severity === 'critical') ? 'block'
-  : sec.some((f) => ['high', 'medium'].includes(f.severity)) || qual.some((f) => ['high', 'medium'].includes(f.severity)) ? 'review' : 'pass';
 
 // Walkthrough: what the change does, file by file. Expected for change scans.
 const wt = doc.walkthrough || null;
@@ -246,7 +247,7 @@ const data = {
     injectionHits: cand.candidates.filter((c) => c.category === 'prompt-injection').length,
   },
   summary: doc.summary || '', notes: [...(doc.notes || []), ...coverageNotes, ...(depNote && !(doc.notes || []).some((n) => /OSV|offline|not checked for known vulnerab/i.test(n)) ? [depNote] : []), ...skippedFiles.map((x) => `Not reviewed: \`${x.file}\` — ${x.reason}`), ...(scope.mode === 'repo' && scope.skipped ? [`${scope.skipped} vendored/built/lock/binary file(s) were outside this whole-repo scan.`] : [])], reviewed: doc.reviewed || [],
-  score, grade, qualityScore, qualityGrade, verdict, counts, kindCounts, focus: cand.focus || 'all',
+  counts, kindCounts, focus: cand.focus || 'all',
   walkthrough: wt,
   standards, deps,
   categories: Object.entries(catMap).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, label: CATEGORIES[k] || k, count: n })),
@@ -328,6 +329,7 @@ data.sarif = sarif;
 applyResolutions(data, loadResolutions(dir, data.meta.scanId));
 renderOutputs(dir, data);
 
+const { score, grade, qualityScore, qualityGrade, verdict } = data;
 const reportPath = path.join(dir, 'report.html');
 const out = { ok: true, score, grade, qualityScore, qualityGrade, verdict, counts, kindCounts, findings: findings.length, resolved: data.progress.resolved, dismissed: dismissed.reduce((n, d) => n + d.items.length, 0), warnings, report: reportPath, sarif: path.join(dir, 'report.sarif'), summary: path.join(dir, 'summary.md') };
 if (JSON_OUT) process.stdout.write(JSON.stringify(out) + '\n');

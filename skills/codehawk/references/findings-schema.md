@@ -19,6 +19,7 @@
     {
       "id": "SEC-001",                         // optional; assigned in order if omitted
       "title": "SQL injection in product search",
+      "scoreDeduction": 26,                  // points deducted from this track
       "severity": "critical",                // critical | high | medium | low | info
       "category": "injection",               // see list below
       "cwe": "CWE-89",                       // optional: defaults to the rule's CWE, then the category's
@@ -70,6 +71,20 @@
 **Security:** `injection` · `xss` · `secrets` · `crypto` · `auth` · `deserialization` · `ssrf` · `path-traversal` · `dos` · `unsafe-code` · `memory` · `config` · `supply-chain` · `info-leak` · `logic` · `prompt-injection`
 
 **Code quality:** `bug` · `error-handling` · `performance` · `concurrency` · `resources` · `complexity` · `maintainability` · `duplication` · `readability` · `dead-code` · `types` · `testing` · `docs` · `best-practice` — severities mean *will break / likely bug / should fix / refactor suggestion / nitpick*; see [quality-guide.md](quality-guide.md).
+
+## Score deductions
+
+Set `scoreDeduction` to the points this finding should subtract from its track. Use the upper end for confirmed broad impact, and reduce the deduction when the affected surface is narrow, prerequisites limit exposure, or confidence is lower. Score each distinct issue once.
+
+| Severity | Security maximum | Code quality maximum |
+|---|---:|---:|
+| Critical | 30 | 25 |
+| High | 15 | 12 |
+| Medium | 6 | 4 |
+| Low | 2 | 1.5 |
+| Info | 0 | 0.25 |
+
+Use a number from zero through the severity maximum. For older findings without a deduction, the builder uses the maximum times the confidence weight (high 1, medium 0.75, low 0.5). Each track starts at 100, subtracts active deductions, then rounds and floors at zero. A fix clears its deduction when all four checks pass. Reopening the finding or failing a check restores the deduction. New rule hits await review before they contribute to the score.
 
 ## Security severity rubric
 

@@ -51,7 +51,7 @@ export const QUALITY_LEVEL = { critical: 'Will break', high: 'Likely bug', mediu
 // Something a reader can check: a file:line, a line number, or a test.
 export const EVIDENCE = /[\w./-]+\.\w+:\d+|\bline \d+|\btests?\b|\bspec\b/i;
 
-export function parseArgs(argv) {
+export function parseArgs(argv, booleanFlags = []) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -59,7 +59,7 @@ export function parseArgs(argv) {
       const eq = a.indexOf('=');
       const k = eq < 0 ? a.slice(2) : a.slice(2, eq);
       if (eq >= 0) args[k] = a.slice(eq + 1);
-      else if (argv[i + 1] && !argv[i + 1].startsWith('--')) args[k] = argv[++i];
+      else if (!booleanFlags.includes(k) && argv[i + 1] && !argv[i + 1].startsWith('--')) args[k] = argv[++i];
       else args[k] = true;
     } else args._.push(a);
   }

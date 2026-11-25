@@ -25,19 +25,16 @@
 //       Lists every finding with its resolution status.
 //
 // The token ties an apply to one specific plan the user has seen, so a fix can't be applied
-// "blind" — and the skill only allow-lists `plan`, so `apply` also triggers Claude Code's
-// own permission prompt.
+// "blind". The skill leaves `apply` subject to the host's shell permissions.
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { parseArgs, OUT_DIR, readJson, writeJson, tryGit, fail, EVIDENCE } from './lib/common.mjs';
+import { parseArgs, OUT_DIR, readJson, writeJson, tryGit, fail, EVIDENCE, SEVERITIES } from './lib/common.mjs';
 import { fingerprint, loadResolutions, saveResolutions, applyResolutions, renderOutputs, RESOLUTION_METHODS, FIX_STEPS, stepsPassed } from './lib/render.mjs';
 import { recheck, codeChanged, fileChangedSince, findSiblings, newIssues } from './lib/recheck.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
-const args = parseArgs(rest);
-// Boolean flags never take a value: `--verified SEC-001` means the flag plus the id.
-for (const k of ['all', 'manual', 'json']) if (typeof args[k] === 'string') { args._.push(args[k]); args[k] = true; }
+const args = parseArgs(rest, ['all', 'manual', 'json', 'verified']);
 const root = path.resolve(args._[0] || '.');
 const JSON_OUT = !!args.json;
 const dir = path.join(root, OUT_DIR);
@@ -45,7 +42,7 @@ const data = readJson(path.join(dir, 'report.json'), null);
 if (!data) fail('No report yet. Run a scan and build.mjs first.', JSON_OUT);
 const planFile = path.join(dir, 'fix-plan.json');
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const findingIds = () => args._.slice(1).filter((s) => !s.startsWith('--')).map((s) => s.toUpperCase());
+const findingIds = () => [...new Set(args._.slice(1).filter((s) => !s.startsWith('--')).map((s) => s.toUpperCase()))];
 
 // Record resolutions for this report's scan and re-render every output; the open report picks
 // the change up by itself. `entries` maps id → { method, note, steps } or null (reopen).
@@ -115,7 +112,10 @@ function changedArg() {
 // cites. When any of them changes, the evidence no longer describes the code and must be given again.
 function revisionOf(f, text) {
   const files = [f.file, ...[...String(text || '').matchAll(/[\w./@+-]+\.\w+/g)].map((m) => m[0])].filter((x, i, a) => a.indexOf(x) === i).sort();
-  return sha(JSON.stringify(files.map((rel) => [rel, fileLines(rel) == null ? null : sha(fileLines(rel))]))).slice(0, 20);
+  return sha(JSON.stringify(files.map((rel) => {
+    const contents = fileLines(rel);
+    return [rel, contents == null ? null : sha(contents)];
+  }))).slice(0, 20);
 }
 const reviewedOf = (hits) => hits.map((h) => ({ rule: h.rule, code: h.code }));
 const sameReviewed = (a, b) => {
@@ -146,19 +146,27 @@ function resolveIds(ids, { method, note, evidence = null, siblings = null, regre
     // on the same line, or a later regression drops it.
     // Evidence set aside by an earlier call counts again once the code is back to what it described.
     const prevGone = prev.gone?.ok ? prev.gone : prev.gone?.stale || null;
-    const keepEvidence = !!prevGone?.ok && prevGone.by === 'evidence' && (check.state === 'flagged'
-      ? sameReviewed(prevGone.reviewed, reviewedOf(check.hits))
-      : check.state === 'unchecked' ? prevGone.rev === revisionOf(f, prevGone.detail) : true);
+    const keepEvidence = prevGone?.ok && prevGone.by === 'evidence'
+      && prevGone.rev === revisionOf(f, prevGone.detail)
+      && (check.state !== 'flagged' || sameReviewed(prevGone.reviewed, reviewedOf(check.hits)));
     let gone;
     if (check.state === 'clear') gone = { ok: true, by: 'rules', detail: 'the rule that flagged it no longer matches' };
     else if (evidence) gone = { ok: true, by: 'evidence', hits: check.state === 'flagged' ? hitTxt : '', reviewed: reviewedOf(check.hits), rev: revisionOf(f, evidence), detail: evidence + (check.state === 'flagged' ? ` (rule still matches ${hitTxt}; reviewed as the safe new code)` : '') };
     else if (keepEvidence) gone = prevGone;
     else gone = { ok: false, detail: check.state === 'flagged' ? `the rule still matches ${hitTxt}` : prevGone?.by === 'evidence' ? 'the code changed since the evidence was given: needs the line or test that proves it' : 'not checked yet: needs the line or test that proves it', ...(prevGone?.by === 'evidence' ? { stale: prevGone } : {}) };
+    const prevSiblings = prev.everywhere?.by === 'evidence' ? prev.everywhere : prev.everywhere?.stale;
+    const siblingStep = siblings ? { ok: true, by: 'evidence', detail: siblings, rev: revisionOf(f, siblings) }
+      : prevSiblings?.rev && prevSiblings.rev === revisionOf(f, prevSiblings.detail) ? prevSiblings
+      : autoSiblings(f);
+    if (!siblingStep.ok && prevSiblings) {
+      siblingStep.stale = prevSiblings;
+      siblingStep.detail += '; earlier sibling evidence needs to be checked again';
+    }
     const prevReg = prev.regression?.ok ? prev.regression : prev.regression?.stale || null;
     const steps = {
       changed,
       gone,
-      everywhere: siblings ? { ok: true, by: 'evidence', detail: siblings } : prev.everywhere?.ok && prev.everywhere.by !== 'rules' ? prev.everywhere : autoSiblings(f),
+      everywhere: siblingStep,
       // Regression evidence is tied to the source and test revisions it was given about.
       regression: regression ? { ok: true, detail: regression, rev: revisionOf(f, regression) }
         : prevReg?.rev && prevReg.rev === revisionOf(f, prevReg.detail) ? prevReg
@@ -239,7 +247,6 @@ function assess(f) {
   if (!f.fix) return { id: f.id, status: 'manual', reason: 'No ready-made patch: Claude must write this fix and show it to you first.' };
   const text = fileLines(f.file);
   if (text == null) return { id: f.id, status: 'missing', reason: `${f.file} isn't in the working tree.` };
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const lines = text.split(/\r?\n/);
   const want = f.fix.before;
   const at = f.fix.start - 1;
@@ -251,12 +258,15 @@ function assess(f) {
     if (hits.length === 1) idx = hits[0];
     else return { id: f.id, status: 'drifted', reason: hits.length ? 'The original code appears more than once now.' : 'The code changed since the scan.' };
   }
-  return { id: f.id, fingerprint: fingerprint(f), status: 'ready', file: f.file, start: idx + 1, before: want, after: f.fix.after, fileHash: sha(text), eol };
+  return { id: f.id, fingerprint: fingerprint(f), status: 'ready', file: f.file, start: idx + 1, before: want, after: f.fix.after, fileHash: sha(text) };
 }
 
 if (cmd === 'plan') {
   const all = args.all || args._.slice(1).includes('--all');
-  const sevs = typeof args.severity === 'string' ? args.severity.toLowerCase().split(',') : null; // e.g. --severity critical,high
+  const sevs = typeof args.severity === 'string' ? args.severity.toLowerCase().split(',').map((s) => s.trim()) : null;
+  if (args.severity !== undefined && !sevs?.every((s) => SEVERITIES.includes(s))) {
+    fail('--severity requires a comma-separated list of valid severities.', JSON_OUT);
+  }
   const ids = all || sevs ? data.findings.filter((f) => !f.resolution && (!sevs || sevs.includes(f.severity))).map((f) => f.id) : findingIds();
   if (!ids.length) fail(all ? 'Every finding is already resolved.' : 'Name the findings to fix (e.g. SEC-001 SEC-004) or pass --all.', JSON_OUT);
   unknownIds(ids);
@@ -317,7 +327,7 @@ if (cmd === 'plan') {
     for (const i of list.sort((a, b) => b.start - a.start)) { // bottom-up keeps line numbers valid
       const s0 = i.start - 1, n = i.before.length;
       const old = eols.slice(s0, s0 + n);
-      const fallback = old[0] || list[0].eol;
+      const fallback = old[0] || (original.includes('\r\n') ? '\r\n' : '\n');
       // Each new line keeps the ending of the line it replaces; the last keeps the block's last ending.
       const fresh = i.after.map((_, k) => (k < i.after.length - 1 ? old[k] || fallback : old.length ? old[old.length - 1] : fallback));
       lines.splice(s0, n, ...i.after);

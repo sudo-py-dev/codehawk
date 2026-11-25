@@ -5,6 +5,11 @@
   "description": "Security review plugin for Claude Code",
   "type": "module",
   "engines": { "node": ">=18" },
-  "scripts": { "test": "node --test tests/" },
+  "scripts": {
+    "test": "node --test tests/scan.test.mjs tests/report.test.mjs tests/fix.test.mjs tests/deps.test.mjs",
+    "example": "node scripts/example.mjs",
+    "check:example": "node scripts/example.mjs --check",
+    "check:version": "node scripts/check-version.mjs"
+  },
   "license": "MIT"
 }

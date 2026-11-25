@@ -163,7 +163,7 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 
 <p align="center"><img src="docs/assets/report-finding.png" alt="A code-quality finding: unawaited forEach(async), with the lines highlighted, a Quality tab and Likely bug / Should fix / Refactor / Nitpick labels" width="900"></p>
 
-- **Two grades and a verdict.** A–F for security and for code quality, plus *Blocks merge*, *Needs attention* or *Looks clean*.
+- **Two grades and a verdict.** A–F for security and for code quality, plus *Blocks merge*, *Needs attention* or *Looks clean*. Each finding shows its point deduction. Scores update live as fixes pass verification or findings reopen.
 - **Walkthrough.** What the change does, grouped by files, with an estimated review effort.
 - **All / Security / Quality tabs.** Quality findings are labeled *Likely bug*, *Should fix*, *Refactor* or *Nitpick*.
 - **Clickable breakdowns.** Filter by severity, category or riskiest file.
@@ -191,7 +191,11 @@ See [`docs/example/`](docs/example/) for a full review of the deliberately vulne
 
 ```bash
 npm test
+npm run check:version
+npm run check:example
 ```
+
+Run `npm run example` after changing the report renderer or template. The [example guide](docs/example/README.md) describes the saved inputs and screenshot refresh steps.
 
 ```
 .claude-plugin/        plugin + marketplace manifests
@@ -203,10 +207,11 @@ skills/codehawk/
   scripts/lib/deps.mjs   lockfile parsers and the SBOM writer
   scripts/lib/osv.mjs    OSV.dev lookup and CVSS scoring
   scripts/lib/taxonomy.mjs  CWE names, OWASP Top 10 and CWE Top 25 mapping
-  assets/report.html   report template
+  assets/report.*      report markup, CSS and JavaScript, inlined into the generated HTML
   references/          findings schema, security and quality review guides
 docs/                  landing page (index.html), example review, logo, icons, screenshots
-tests/                 end-to-end tests and the vulnerable fixture app
+scripts/               development tools for example generation and version checks
+tests/                 scan, report, fix, and dependency suites with shared fixtures
 ```
 
 Each rule is a pattern plus a *hint* telling the reviewer what to verify. Rules are deliberately broad because accuracy comes from the review step.
