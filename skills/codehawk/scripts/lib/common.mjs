@@ -170,11 +170,11 @@ export function langOf(rel) {
   return 'text';
 }
 
-/** CodeHawk's own version, from the plugin manifest next to the skill. */
+/** CodeHawk's own version, from the shared package metadata. */
 let _version;
 export function toolVersion() {
   if (_version) return _version;
-  try { _version = JSON.parse(fs.readFileSync(new URL('../../../../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version; } catch { _version = '0.0.0'; }
+  try { _version = JSON.parse(fs.readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8')).version; } catch { _version = '0.0.0'; }
   return _version;
 }
 

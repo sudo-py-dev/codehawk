@@ -8,7 +8,7 @@ Use the latest CodeHawk report for the selected checkout. Use `fix.mjs status <r
 4. **Resolve.** Review the changed code in context. Check that previously supported inputs still work and trace sibling paths for the same issue. Run project tests only for trusted code with the user's authorization. Record the result per finding:
 
    ```bash
-   node "${CLAUDE_SKILL_DIR}/scripts/fix.mjs" resolve . SEC-001 \
+   node /absolute/path/to/codehawk/scripts/fix.mjs resolve . SEC-001 \
      --regression "Empty and wildcard searches still work through src/server.js:31"
    ```
 

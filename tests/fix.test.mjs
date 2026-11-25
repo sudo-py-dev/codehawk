@@ -138,7 +138,7 @@ test('resolution status: apply marks resolved, resolve/reopen update every outpu
   assert.equal(early.refused[0].id, secId);
   assert.equal(byTitle('SQLi').resolution, null);
 
-  // Applying the patch ticks the three scripted steps; only the regression check waits for Claude.
+  // Applying the patch ticks the three scripted steps; only the regression check requires reviewer evidence.
   assert.deepEqual(run('fix.mjs', 'plan', dir, '--severity', 'critical').items.map((i) => i.id), [secId], 'severity picks ids without reading report.json');
   for (const severityArgs of [[], ['critical,'], ['urgent']]) {
     assert.match(runFail('fix.mjs', 'plan', dir, '--all', '--severity', ...severityArgs).error, /--severity requires/);

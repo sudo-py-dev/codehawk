@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codehawk",
+  "version": "0.3.3",
+  "description": "Review code for security and quality, generate an interactive report, and apply approved fixes.",
+  "author": {
+    "name": "sudo-py-dev",
+    "url": "https://github.com/sudo-py-dev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sudo-py-dev/codehawk",
+  "repository": "https://github.com/sudo-py-dev/codehawk",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "CodeHawk",
+        "shortDescription": "Review code for security and quality",
+        "defaultPrompt": [
+          "Use CodeHawk to review my current branch.",
+          "Use CodeHawk to review my latest commit for code quality."
+        ]
+      }
+    }
+  }
+}

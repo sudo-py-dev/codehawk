@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Optional local server for the report, for apps whose preview pane can't run file:// pages
-// (e.g. the Claude desktop app). report.html is still written as a plain file on every build;
+// (such as a desktop preview pane). report.html is still written as a plain file on every build;
 // this only adds instant push updates and an http:// URL.
 //
 //   node serve.mjs <root> [--port <n>] [--idle <minutes>] [--json]   start (or reuse) and print the URL

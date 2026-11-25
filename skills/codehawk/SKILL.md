@@ -1,25 +1,15 @@
 ---
 name: codehawk
 description: "Security and code-quality review of a pull request, commit, commit range, branch, uncommitted changes or whole repository: vulnerabilities, leaked secrets, injection, broken auth, dependency CVEs (OSV.dev), CI/IaC misconfigurations, prompt injection, likely bugs, performance and regressions. Builds an interactive HTML report plus SARIF and SBOM, and applies fixes only after the user approves. Use for code review, security audits, or applying findings from a CodeHawk report."
-argument-hint: "[--pr <n> | --commit <sha> | --range <a>..<b> | --base <branch> | --working | --repo [--at <sha>]] [--offline] [path]  |  fix <SEC-…>"
-allowed-tools:
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/target.mjs *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/scan.mjs *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/build.mjs *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs plan *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs resolve *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs reopen *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs status *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs check *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/show.mjs *)
-  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/serve.mjs *)
 ---
 
 # CodeHawk
 
-Arguments: $ARGUMENTS
+Use the scope and options from the user's request or the command that invoked this skill.
 
-Run scripts from `${CLAUDE_SKILL_DIR}/scripts` (use the skill directory if the variable is unavailable). If arguments start with `fix`, read [fix-loop.md](references/fix-loop.md) and follow it.
+Run the bundled scripts by absolute path. Resolve `scripts/` relative to the installed copy of this skill, and pass the repository under review separately as the root argument. Use the active host's normal permissions for shell commands.
+
+If the user requests fixes for existing findings, read [fix-loop.md](references/fix-loop.md) and follow it.
 
 ## Trust and scope
 
