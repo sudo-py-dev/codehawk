@@ -28,7 +28,7 @@ const cands = (dir) => JSON.parse(fs.readFileSync(path.join(dir, '.patchhound', 
 
 test('repo scan finds the planted issues', () => {
   const dir = repo();
-  assert.equal(run('target.mjs', dir, '--repo').files, 7);
+  assert.equal(run('target.mjs', dir, '--repo').files, 8);
   run('scan.mjs', dir);
   const rules = new Set(cands(dir).map((c) => c.rule));
   for (const r of ['sql-concat', 'js-child-process', 'path-traversal', 'jwt-none', 'secret-generic', 'redos-literal', 'py-pickle', 'py-yaml', 'py-shell', 'gha-injection', 'gha-prt', 'debug-enabled'])
@@ -161,4 +161,53 @@ test('change scans look inside vendored/minified files and commit messages', () 
   assert.ok(c.some((x) => x.rule === 'js-eval' && x.file === 'vendor/lib.min.js'));
   assert.ok(c.some((x) => x.rule === 'pi-skip-review' && x.file === 'vendor/lib.min.js'));
   assert.ok(c.some((x) => x.file.startsWith('(commit ') && x.category === 'prompt-injection'), 'commit message must be scanned');
+});
+
+test('quality track: bugs, N+1, error handling, nesting and duplication', () => {
+  const dir = repo();
+  run('target.mjs', dir, '--repo');
+  run('scan.mjs', dir);
+  const q = cands(dir).filter((c) => c.kind === 'quality');
+  const rules = new Set(q.map((c) => c.rule));
+  for (const r of ['js-foreach-async', 'py-mutable-default', 'query-in-loop', 'empty-catch', 'py-bare-except', 'deep-nesting', 'duplicate-block'])
+    assert.ok(rules.has(r), `expected quality rule ${r}`);
+  // One-line brace-less loop body must not swallow the next statement (old false positive).
+  assert.ok(!q.some((c) => c.rule === 'query-in-loop' && c.file === 'src/lib/orders.js' && c.line === 10));
+  // Nitpicks are off for whole-repo scans unless asked for.
+  assert.ok(!q.some((c) => c.severity === 'info'));
+  run('scan.mjs', dir, '--nitpicks');
+  assert.ok(cands(dir).some((c) => c.kind === 'quality' && c.severity === 'info'));
+  // --focus security drops quality but never the prompt-injection guards.
+  run('scan.mjs', dir, '--focus', 'security');
+  const s = cands(dir);
+  assert.ok(!s.some((c) => c.kind === 'quality'));
+  assert.ok(s.some((c) => c.category === 'prompt-injection'));
+});
+
+test('build: two grades, walkthrough and the PR comment layout', () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, 'src/lib/orders.js'), '\nasync function sendAll(xs) { xs.forEach(async (x) => { await notify(x); }); }\n');
+  git(dir, 'commit', '-qam', 'notify');
+  run('target.mjs', dir, '--commit', 'HEAD');
+  run('scan.mjs', dir);
+  const c = cands(dir);
+  const fe = c.find((x) => x.rule === 'js-foreach-async');
+  assert.ok(fe);
+  fs.writeFileSync(path.join(dir, '.patchhound', 'findings.json'), JSON.stringify({
+    summary: 'Adds bulk notifications.', reviewed: readList(dir),
+    walkthrough: { summary: 'Adds sendAll to notify many users.', changes: [{ files: ['src/lib/orders.js'], summary: 'New sendAll helper.' }], effort: 1 },
+    findings: [{ title: 'Notifications are fired without awaiting', severity: 'high', category: 'bug', confidence: 'high', file: fe.file, line: fe.line, candidates: [fe.id],
+      description: 'forEach ignores promises.', impact: 'Failures are lost.', fix: 'Use Promise.all.', fixCode: 'async function sendAll(xs) { await Promise.all(xs.map((x) => notify(x))); }' }],
+    dismissed: c.filter((x) => x.id !== fe.id).length ? [{ candidates: c.filter((x) => x.id !== fe.id).map((x) => x.id), reason: 'checked by hand in this test fixture' }] : [],
+  }));
+  const out = run('build.mjs', dir);
+  assert.equal(out.grade, 'A');
+  assert.equal(out.qualityGrade, 'B');
+  assert.equal(out.kindCounts.quality, 1);
+  const md = fs.readFileSync(out.summary, 'utf8');
+  assert.match(md, /### Walkthrough/);
+  assert.match(md, /### Code quality — 1 actionable/);
+  assert.match(md, /`LIKELY BUG`/);
+  const data = JSON.parse(fs.readFileSync(path.join(dir, '.patchhound', 'report.json'), 'utf8'));
+  assert.equal(data.findings[0].id, 'CQ-001');
 });

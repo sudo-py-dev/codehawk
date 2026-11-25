@@ -24,6 +24,29 @@ export const CATEGORIES = {
   'prompt-injection': 'Prompt injection / hidden text',
 };
 
+// Code-quality categories: the review track that isn't about attackers, but about code that is
+// wrong, fragile, slow or hard to maintain.
+export const QUALITY_CATEGORIES = {
+  bug: 'Likely bug',
+  'error-handling': 'Error handling',
+  performance: 'Performance',
+  concurrency: 'Async & concurrency',
+  resources: 'Resource leaks',
+  complexity: 'Complexity',
+  maintainability: 'Maintainability',
+  duplication: 'Duplicated code',
+  readability: 'Readability',
+  'dead-code': 'Dead & debug code',
+  types: 'Type safety',
+  testing: 'Tests',
+  docs: 'Docs & comments',
+  'best-practice': 'Best practice',
+};
+Object.assign(CATEGORIES, QUALITY_CATEGORIES);
+export const kindOf = (category) => (QUALITY_CATEGORIES[category] ? 'quality' : 'security');
+// What each severity means on the quality track (reviewer-style levels).
+export const QUALITY_LEVEL = { critical: 'Will break', high: 'Likely bug', medium: 'Should fix', low: 'Refactor suggestion', info: 'Nitpick' };
+
 export function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i++) {

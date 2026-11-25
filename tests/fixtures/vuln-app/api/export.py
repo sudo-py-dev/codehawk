@@ -30,3 +30,16 @@ def ping():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=True)
+
+
+def add_tags(record, tags=[]):
+    tags.append(record["id"])
+    return tags
+
+
+def read_config(path):
+    f = open(path)
+    try:
+        return f.read()
+    except:
+        pass

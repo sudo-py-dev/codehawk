@@ -4,6 +4,14 @@
 {
   "summary": "Two ways to run arbitrary SQL from the public API and a live Stripe key in git. Fix the search query first: it's reachable without login.",
   "notes": ["Did not review the legacy/ folder (12k lines, not deployed per README)."],
+  "walkthrough": {                       // change scans (PR/commit/branch): what the change does
+    "summary": "Adds product search and a thumbnail endpoint to the public API.",
+    "changes": [
+      { "files": ["src/routes/search.ts"], "summary": "New GET /api/search backed by a LIKE query." },
+      { "files": ["src/thumbs.ts", "src/routes/thumb.ts"], "summary": "Generates thumbnails with ImageMagick on request." }
+    ],
+    "effort": 3                            // 1 (trivial) … 5 (large, risky, cross-cutting)
+  },
   "reviewed": ["src/routes/search.ts", "src/middleware/auth.ts"],  // every read-list file, or…
   "skipped": [{ "file": "legacy/big.js", "reason": "User asked to leave legacy/ out of this pass." }],  // …only user-requested or truly impossible skips
 
@@ -28,6 +36,14 @@
     }
   ],
 
+  // A code-quality finding: same shape, a quality category, no "exploit".
+  //  { "title": "Order totals recalculated without awaiting", "severity": "high", "category": "bug",
+  //    "confidence": "high", "file": "src/orders.ts", "line": 12, "candidates": ["C-031"],
+  //    "description": "forEach(async …) doesn't wait, so the function returns before any total is saved and errors are lost.",
+  //    "impact": "Callers read stale totals; failed updates are silent.",
+  //    "fix": "Loop with for…of and await, or Promise.all over map.",
+  //    "fixCode": "  for (const order of orders) {" }
+
   "dismissed": [
     { "candidates": ["C-001", "C-002"], "reason": "Test fixtures with dummy keys; not shipped." },
     { "candidates": ["C-007"], "reason": "md5 is used for an ETag, not for security." }
@@ -45,9 +61,11 @@
 
 ## Categories
 
-`injection` · `xss` · `secrets` · `crypto` · `auth` · `deserialization` · `ssrf` · `path-traversal` · `dos` · `unsafe-code` · `memory` · `config` · `supply-chain` · `info-leak` · `logic`
+**Security:** `injection` · `xss` · `secrets` · `crypto` · `auth` · `deserialization` · `ssrf` · `path-traversal` · `dos` · `unsafe-code` · `memory` · `config` · `supply-chain` · `info-leak` · `logic` · `prompt-injection`
 
-## Severity rubric
+**Code quality:** `bug` · `error-handling` · `performance` · `concurrency` · `resources` · `complexity` · `maintainability` · `duplication` · `readability` · `dead-code` · `types` · `testing` · `docs` · `best-practice` — severities mean *will break / likely bug / should fix / refactor suggestion / nitpick*; see [quality-guide.md](quality-guide.md).
+
+## Security severity rubric
 
 | Severity | Meaning | Examples |
 |---|---|---|

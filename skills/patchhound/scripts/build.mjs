@@ -10,7 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { parseArgs, outDir, readJson, writeJson, readAt, fail, SEVERITIES, CATEGORIES } from './lib/common.mjs';
+import { parseArgs, outDir, readJson, writeJson, readAt, fail, SEVERITIES, CATEGORIES, kindOf, QUALITY_LEVEL } from './lib/common.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = parseArgs(process.argv.slice(2));
@@ -63,7 +63,7 @@ const findings = (doc.findings || []).map((f, i) => {
   }
   return {
     id: f.id || null,
-    title: f.title, severity: f.severity, category: f.category, categoryLabel: CATEGORIES[f.category] || f.category,
+    title: f.title, kind: kindOf(f.category), severity: f.severity, category: f.category, categoryLabel: CATEGORIES[f.category] || f.category,
     cwe: f.cwe || null, owasp: f.owasp || null, confidence: f.confidence || 'medium',
     file: f.file, line, endLine, lang: scope.files.find((x) => x.path === f.file)?.lang || 'text',
     description: f.description, impact: f.impact || '', exploit: f.exploit || '', fixText: f.fix,
@@ -118,19 +118,44 @@ if (errors.length) {
 
 // ── score ──
 const SEV_RANK = Object.fromEntries(SEVERITIES.map((s, i) => [s, i]));
-findings.sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || CONF.indexOf(a.confidence) - CONF.indexOf(b.confidence) || a.file.localeCompare(b.file) || a.line - b.line);
+findings.sort((a, b) => (a.kind === 'quality') - (b.kind === 'quality') || SEV_RANK[a.severity] - SEV_RANK[b.severity] || CONF.indexOf(a.confidence) - CONF.indexOf(b.confidence) || a.file.localeCompare(b.file) || a.line - b.line);
 { // number findings in display order (most severe first) unless the reviewer chose ids
   const used = new Set(findings.map((f) => f.id).filter(Boolean));
   let n = 0;
-  for (const f of findings) if (!f.id) { do f.id = `SEC-${String(++n).padStart(3, '0')}`; while (used.has(f.id) && n < 1e4); used.add(f.id); }
+  const next = { security: 0, quality: 0 };
+  for (const f of findings) if (!f.id) {
+    const pre = f.kind === 'quality' ? 'CQ' : 'SEC';
+    do f.id = `${pre}-${String(++next[f.kind]).padStart(3, '0')}`; while (used.has(f.id) && next[f.kind] < 1e4);
+    used.add(f.id);
+  }
 }
-const W = { critical: 30, high: 15, medium: 6, low: 2, info: 0 };
+// Two grades: security (attack surface) and code quality (bugs, robustness, maintainability).
+const sec = findings.filter((f) => f.kind === 'security');
+const qual = findings.filter((f) => f.kind === 'quality');
 const CM = { high: 1, medium: 0.75, low: 0.5 };
-const penalty = findings.reduce((s, f) => s + W[f.severity] * CM[f.confidence], 0);
-const score = Math.max(0, Math.round(100 - penalty));
-const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 65 ? 'C' : score >= 45 ? 'D' : 'F';
+const toGrade = (n) => (n >= 90 ? 'A' : n >= 80 ? 'B' : n >= 65 ? 'C' : n >= 45 ? 'D' : 'F');
+const scoreOf = (list, W) => Math.max(0, Math.round(100 - list.reduce((s, f) => s + W[f.severity] * CM[f.confidence], 0)));
+const score = scoreOf(sec, { critical: 30, high: 15, medium: 6, low: 2, info: 0 });
+const grade = toGrade(score);
+const qualityScore = scoreOf(qual, { critical: 25, high: 12, medium: 4, low: 1.5, info: 0.25 });
+const qualityGrade = toGrade(qualityScore);
 const counts = Object.fromEntries(SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length]));
-const verdict = counts.critical || findings.some((f) => f.severity === 'high' && f.confidence !== 'low') ? 'block' : counts.high || counts.medium ? 'review' : 'pass';
+const kindCounts = { security: sec.length, quality: qual.length, nitpicks: qual.filter((f) => f.severity === 'info').length };
+const verdict = sec.some((f) => f.severity === 'critical' || (f.severity === 'high' && f.confidence !== 'low')) || qual.some((f) => f.severity === 'critical') ? 'block'
+  : sec.some((f) => ['high', 'medium'].includes(f.severity)) || qual.some((f) => ['high', 'medium'].includes(f.severity)) ? 'review' : 'pass';
+
+// Walkthrough: what the change does, file by file. Expected for change scans.
+const wt = doc.walkthrough || null;
+if (wt) {
+  if (!wt.summary) errors.push('walkthrough: needs a "summary".');
+  for (const [i, c] of (wt.changes || []).entries()) if (!c.summary || !Array.isArray(c.files) || !c.files.length) errors.push(`walkthrough.changes[${i}]: needs "files": [...] and "summary".`);
+  if (wt.effort !== undefined && !(wt.effort >= 1 && wt.effort <= 5)) errors.push('walkthrough.effort must be 1–5.');
+} else if (scope.mode !== 'repo') warnings.push('No "walkthrough": change reviews should summarize what the change does, file by file.');
+if (errors.length) {
+  if (JSON_OUT) process.stdout.write(JSON.stringify({ ok: false, errors, warnings }) + '\n');
+  else { console.error(`patchhound: findings.json has ${errors.length} problem(s):`); for (const e of errors) console.error(`  ✗ ${e}`); }
+  process.exit(1);
+}
 
 const fileMap = new Map();
 for (const f of findings) {
@@ -155,7 +180,8 @@ const data = {
     injectionHits: cand.candidates.filter((c) => c.category === 'prompt-injection').length,
   },
   summary: doc.summary || '', notes: [...(doc.notes || []), ...skippedFiles.map((x) => `Not reviewed: \`${x.file}\` — ${x.reason}`), ...(scope.mode === 'repo' && scope.skipped ? [`${scope.skipped} vendored/built/lock/binary file(s) were outside this whole-repo scan.`] : [])], reviewed: doc.reviewed || [],
-  score, grade, verdict, counts,
+  score, grade, qualityScore, qualityGrade, verdict, counts, kindCounts, focus: cand.focus || 'all',
+  walkthrough: wt,
   categories: Object.entries(catMap).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ key: k, label: CATEGORIES[k] || k, count: n })),
   files: [...fileMap.values()].sort((a, b) => SEV_RANK[a.worst] - SEV_RANK[b.worst] || b.count - a.count),
   findings, dismissed,
@@ -173,6 +199,7 @@ fs.writeFileSync(path.join(dir, 'report.html'), html);
 
 // ── report.sarif ──
 const LEVEL = { critical: 'error', high: 'error', medium: 'warning', low: 'note', info: 'note' };
+const sarifLevel = (f) => (f.kind === 'quality' && f.severity !== 'critical' ? (f.severity === 'high' ? 'warning' : 'note') : LEVEL[f.severity]);
 const SSEV = { critical: '9.5', high: '8.0', medium: '5.5', low: '3.0', info: '1.0' };
 const ruleIds = new Map();
 for (const f of findings) {
@@ -180,68 +207,76 @@ for (const f of findings) {
   if (!ruleIds.has(rid)) ruleIds.set(rid, {
     id: rid, name: f.categoryLabel, shortDescription: { text: `${f.categoryLabel}${f.cwe ? ` (${f.cwe})` : ''}` },
     helpUri: f.cwe ? `https://cwe.mitre.org/data/definitions/${f.cwe.replace(/\D/g, '')}.html` : undefined,
-    properties: { tags: ['security', f.category, ...(f.cwe ? [f.cwe] : [])], 'security-severity': SSEV[f.severity] },
+    properties: f.kind === 'security' ? { tags: ['security', f.category, ...(f.cwe ? [f.cwe] : [])], 'security-severity': SSEV[f.severity] } : { tags: ['maintainability', 'quality', f.category] },
   });
   f._rule = rid;
 }
 const sarif = {
   $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0',
   runs: [{
-    tool: { driver: { name: 'PatchHound', informationUri: 'https://github.com/', version: '0.1.0', rules: [...ruleIds.values()] } },
+    tool: { driver: { name: 'PatchHound', informationUri: 'https://github.com/', version: '0.2.0', rules: [...ruleIds.values()] } },
     results: findings.map((f) => ({
-      ruleId: f._rule, level: LEVEL[f.severity],
+      ruleId: f._rule, level: sarifLevel(f),
       message: { text: `${f.title}: ${f.description}` },
       locations: [{ physicalLocation: { artifactLocation: { uri: f.file }, region: { startLine: f.line, endLine: f.endLine } } }],
       partialFingerprints: { patchhoundId: `${f.file}:${f.category}:${f.title}` },
-      properties: { severity: f.severity, confidence: f.confidence, 'security-severity': SSEV[f.severity] },
+      properties: { kind: f.kind, severity: f.severity, confidence: f.confidence, ...(f.kind === 'security' ? { 'security-severity': SSEV[f.severity] } : {}) },
     })),
   }],
 };
 for (const f of findings) delete f._rule;
 writeJson(path.join(dir, 'report.sarif'), sarif);
 
-// ── summary.md (PR comment) ──
-const ICON = { critical: '`CRITICAL`', high: '`HIGH`', medium: '`MEDIUM`', low: '`LOW`', info: '`INFO`' };
+// ── summary.md (PR comment: grades, walkthrough, findings by track, folded nitpicks) ──
+const LABEL = (f) => (f.kind === 'quality' ? `\`${QUALITY_LEVEL[f.severity].toUpperCase()}\`` : `\`${f.severity.toUpperCase()}\``);
 const VERDICT = { block: '**Verdict: blocks merge.** Fix the blocking issues before merging.', review: '**Verdict: needs attention.** No blockers, but worth fixing.', pass: '**Verdict: looks good.** Nothing significant found.' };
 const md = [];
-md.push(`## PatchHound security review — grade **${grade}** (${score}/100)`);
-md.push('');
+const loc = (f) => (f.link ? `[\`${f.file}:${f.line}\`](${f.link})` : `\`${f.file}:${f.line}\``);
+function detail(f, open = false) {
+  md.push(`<details${open ? ' open' : ''}><summary>${LABEL(f)} <b>${escapeHtml(f.title)}</b> — ${loc(f).replace(/</g, '&lt;')}${f.cwe ? ` · ${f.cwe}` : ''}</summary>`, '');
+  md.push(f.description, '');
+  if (f.impact) md.push(`**${f.kind === 'quality' ? 'Why it matters' : 'Impact'}:** ${f.impact}`, '');
+  if (f.exploit) md.push(`**How it could be exploited:** ${f.exploit}`, '');
+  md.push(`**${f.kind === 'quality' ? 'Suggestion' : 'Fix'}:** ${f.fixText}`, '');
+  if (f.fix) { md.push('```diff'); for (const l of f.fix.before) md.push(`- ${l}`); for (const l of f.fix.after) md.push(`+ ${l}`); md.push('```', ''); }
+  md.push('</details>');
+}
+md.push(`## PatchHound review`, '');
+md.push(`**Security ${grade}** (${score}/100) · **Code quality ${qualityGrade}** (${qualityScore}/100)  `);
 md.push(`${VERDICT[verdict]}  `);
-md.push(`<sub>${scope.label} · ${scope.files.length} files scanned · ${cand.candidates.length} rule hits triaged · ${findings.length} confirmed</sub>`);
-md.push('');
+md.push(`<sub>${scope.label} · ${scope.files.length} files · ${cand.candidates.length} rule hits triaged · ${sec.length} security · ${qual.length} quality</sub>`, '');
 if (doc.summary) md.push(doc.summary, '');
 if (data.meta.trust.level !== 'trusted' || data.meta.injectionHits) {
   md.push(`> [!WARNING]`, `> Reviewed code from an untrusted source${data.meta.injectionHits ? ` and found ${data.meta.injectionHits} line(s) of text aimed at AI reviewers or hidden characters` : ''}. AI-assisted reviews can be manipulated by prompt injection; a clean result is not a guarantee. Have a human check anything security-critical.`, '');
 }
-md.push(`| ${SEVERITIES.map((s) => s[0].toUpperCase() + s.slice(1)).join(' | ')} |`);
-md.push(`|${SEVERITIES.map(() => ':---:').join('|')}|`);
-md.push(`| ${SEVERITIES.map((s) => counts[s]).join(' | ')} |`);
-md.push('');
-for (const f of findings) {
-  const loc = f.link ? `[\`${f.file}:${f.line}\`](${f.link})` : `\`${f.file}:${f.line}\``;
-  md.push(`<details><summary>${ICON[f.severity]} <b>${escapeHtml(f.title)}</b> — ${loc.replace(/</g, '&lt;')}${f.cwe ? ` · ${f.cwe}` : ''}</summary>`);
-  md.push('');
-  md.push(f.description, '');
-  if (f.impact) md.push(`**Impact:** ${f.impact}`, '');
-  if (f.exploit) md.push(`**How it could be exploited:** ${f.exploit}`, '');
-  md.push(`**Fix:** ${f.fixText}`, '');
-  if (f.fix) {
-    md.push('```diff');
-    for (const l of f.fix.before) md.push(`- ${l}`);
-    for (const l of f.fix.after) md.push(`+ ${l}`);
-    md.push('```', '');
+if (wt) {
+  md.push('### Walkthrough', '', wt.summary, '');
+  if (wt.changes?.length) {
+    md.push('| Files | Change summary |', '|---|---|');
+    for (const c of wt.changes) md.push(`| ${c.files.map((x) => `\`${x}\``).join('<br>')} | ${String(c.summary).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`);
+    md.push('');
   }
-  md.push('</details>');
+  if (wt.effort) md.push(`**Estimated review effort:** ${wt.effort}/5 ${'●'.repeat(wt.effort)}${'○'.repeat(5 - wt.effort)}`, '');
 }
-if (!findings.length) md.push('_No security issues confirmed in this scope._');
-md.push('', `<sub>Generated by PatchHound · ${dismissed.reduce((n, d) => n + d.items.length, 0)} candidates reviewed and dismissed as false positives.</sub>`);
+if (sec.length) { md.push(`### Security — ${sec.length}`, ''); for (const f of sec) detail(f, f.severity === 'critical'); md.push(''); }
+const actionable = qual.filter((f) => f.severity !== 'info');
+const nits = qual.filter((f) => f.severity === 'info');
+if (actionable.length) { md.push(`### Code quality — ${actionable.length} actionable`, ''); for (const f of actionable) detail(f); md.push(''); }
+if (nits.length) {
+  md.push(`<details><summary><b>Nitpicks (${nits.length})</b></summary>`, '');
+  for (const f of nits) md.push(`- ${loc(f)} — **${escapeHtml(f.title)}.** ${f.fixText}`);
+  md.push('', '</details>', '');
+}
+if (!findings.length) md.push('_No issues confirmed in this scope._');
+md.push('', `<sub>Generated by PatchHound · ${dismissed.reduce((n, d) => n + d.items.length, 0)} rule hits checked and dismissed.</sub>`);
 fs.writeFileSync(path.join(dir, 'summary.md'), md.join('\n') + '\n');
 
 const reportPath = path.join(dir, 'report.html');
-const out = { ok: true, score, grade, verdict, counts, findings: findings.length, dismissed: dismissed.reduce((n, d) => n + d.items.length, 0), warnings, report: reportPath, sarif: path.join(dir, 'report.sarif'), summary: path.join(dir, 'summary.md') };
+const out = { ok: true, score, grade, qualityScore, qualityGrade, verdict, counts, kindCounts, findings: findings.length, dismissed: dismissed.reduce((n, d) => n + d.items.length, 0), warnings, report: reportPath, sarif: path.join(dir, 'report.sarif'), summary: path.join(dir, 'summary.md') };
 if (JSON_OUT) process.stdout.write(JSON.stringify(out) + '\n');
 else {
-  console.log(`GRADE    ${grade} (${score}/100) · verdict: ${verdict}`);
+  console.log(`SECURITY ${grade} (${score}/100) · QUALITY ${qualityGrade} (${qualityScore}/100) · verdict: ${verdict}`);
+  console.log(`TRACKS   security ${sec.length} · quality ${qual.length - kindCounts.nitpicks} actionable + ${kindCounts.nitpicks} nitpicks`);
   console.log(`FINDINGS ${SEVERITIES.map((s) => `${s} ${counts[s]}`).join(' · ')}`);
   for (const w of warnings) console.log(`  ! ${w}`);
   console.log(`REPORT   file://${reportPath}`);

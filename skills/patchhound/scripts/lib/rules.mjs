@@ -262,8 +262,8 @@ export const RULES = [
     re: /tempfile\.mktemp\(|\bmktemp\s*\(|\btmpnam\(|>\s*\/tmp\/[\w.-]+\b/, hint: 'Predictable temp paths allow symlink attacks. Use mkstemp/NamedTemporaryFile/mktemp -d.' },
   { id: 'chmod-777', title: 'World-writable permissions', sev: 'medium', cat: 'config', cwe: 'CWE-732', langs: ALL,
     re: /chmod\s+(-R\s+)?(0?777|a\+w|o\+w)|chmod(Sync)?\([^)]*0o?777|os\.chmod\([^)]*0o?777|os\.(Chmod|MkdirAll|WriteFile)\([^)]*0?777/, hint: 'Any local user can modify these files.' },
-  { id: 'catch-swallow', title: 'Security error swallowed', sev: 'info', cat: 'logic', cwe: 'CWE-390', langs: JS,
-    re: /catch\s*(\(\s*\w*\s*\))?\s*\{\s*(return\s+(true|next\(\)))?\s*;?\s*\}/, hint: 'An empty catch around auth/validation may fail open.' },
+  { id: 'catch-swallow', title: 'Error swallowed and request let through (fails open)', sev: 'medium', cat: 'logic', cwe: 'CWE-390', langs: JS,
+    re: /catch\s*(\(\s*\w*\s*\))?\s*\{\s*return\s+(true|next\(\))\s*;?\s*\}/, hint: 'An empty catch around auth/validation may fail open.' },
 
   // ───────────── Information exposure ─────────────
   { id: 'stack-to-client', title: 'Error details sent to the client', sev: 'low', cat: 'info-leak', cwe: 'CWE-209', langs: [...JS, 'python', 'go', 'php'],
@@ -337,6 +337,96 @@ export const RULES = [
     re: new RegExp('[' + cp(0xE0000) + '-' + cp(0xE007F) + ']|[' + cp(0x200B) + '-' + cp(0x200D) + cp(0x2060) + cp(0x180E) + ']{2,}', 'u'),
     hint: 'Unicode tag / zero-width characters can smuggle invisible instructions to AI tools or hide code from human reviewers. Decode them (each tag char = ASCII + 0xE0000) and report what they say.' },
 ];
+
+
+// ═════════════════════════════ Code quality ═════════════════════════════
+// The second review track: bugs, fragile error handling, performance,
+// maintainability and nitpicks. Severity here means: high = likely bug, medium = should fix,
+// low = refactor suggestion, info = nitpick. Same rule: these are candidates the reviewer judges.
+const Q = (r) => ({ ...r, kind: 'quality' });
+export const QUALITY_RULES = [
+  // ── likely bugs ──
+  Q({ id: 'js-foreach-async', title: 'async callback in forEach is not awaited', sev: 'high', cat: 'bug', langs: JS,
+    re: /\.forEach\(\s*async\b/, hint: 'forEach ignores returned promises: errors are lost and the code after it runs before the work finishes. Use for…of with await, or Promise.all(map).' }),
+  Q({ id: 'js-async-executor', title: 'async Promise executor', sev: 'high', cat: 'bug', langs: JS,
+    re: /new\s+Promise\(\s*async\b/, hint: 'Errors thrown inside an async executor never reject the promise. Drop the wrapper or move the await outside.' }),
+  Q({ id: 'nan-compare', title: 'Comparison with NaN is always false', sev: 'high', cat: 'bug', langs: [...JS, 'java', 'csharp'],
+    re: /[=!]==?\s*NaN\b|\bNaN\s*[=!]==?/, hint: 'Use Number.isNaN(x).' }),
+  Q({ id: 'typeof-array', title: 'typeof never returns "array" or "null"', sev: 'high', cat: 'bug', langs: JS,
+    re: /typeof\s+[\w.$\[\]]+\s*[!=]==?\s*['"](array|null|date)['"]/, hint: 'Use Array.isArray(x) / x === null / x instanceof Date.' }),
+  Q({ id: 'js-loose-eq', title: 'Loose equality (== / !=)', sev: 'info', cat: 'bug', langs: JS,
+    re: /[^=!<>]\s(==|!=)\s(?!=)/, unless: /[=!]=\s*null\b|\bnull\s*[=!]=|^\s*(\/\/|\*)/,
+    hint: '== coerces types ("0" == 0, [] == false). Use === unless coercion is intended (x == null is a common, fine idiom).' }),
+  Q({ id: 'parseint-radix', title: 'parseInt without radix', sev: 'info', cat: 'bug', langs: JS,
+    re: /\bparseInt\(\s*[^,()]+\)/, hint: 'Pass 10 explicitly, or use Number(x).' }),
+  Q({ id: 'react-index-key', title: 'Array index used as React key', sev: 'low', cat: 'bug', langs: JS,
+    re: /\bkey=\{\s*(i|idx|index|j)\s*\}/, hint: 'Index keys break state and animations when items are reordered or removed. Use a stable id.' }),
+  Q({ id: 'py-mutable-default', title: 'Mutable default argument', sev: 'high', cat: 'bug', langs: ['python'],
+    re: /\bdef\s+\w+\s*\([^)]*=\s*(\[\]|\{\}|set\(\)|list\(\)|dict\(\))/, hint: 'The default is shared between calls, so state leaks across them. Default to None and create it inside.' }),
+  Q({ id: 'py-is-literal', title: '"is" used to compare with a literal', sev: 'high', cat: 'bug', langs: ['python'],
+    re: /\bis\s+(not\s+)?(['"]|-?\d|\[|\()/, hint: '"is" compares identity, not value; it works by accident for small ints/strings. Use ==.' }),
+  Q({ id: 'java-string-eq', title: 'Strings compared with ==', sev: 'high', cat: 'bug', langs: ['java'],
+    re: /("[^"]*"\s*[=!]=\s*[a-z]\w*|[a-z]\w*\s*[=!]=\s*"[^"]*")/, hint: 'In Java == compares references. Use .equals() / Objects.equals().' }),
+  Q({ id: 'assign-in-condition', title: 'Assignment inside a condition', sev: 'medium', cat: 'bug', langs: [...JS, 'c', 'java', 'csharp', 'php'],
+    re: /\b(if|while)\s*\(\s*[\w.$\[\]]+\s*=(?![=>])\s*[^=]/, hint: 'Usually a typo for ==/===. If intended, wrap in extra parentheses and compare explicitly.' }),
+
+  // ── error handling ──
+  Q({ id: 'empty-catch', title: 'Empty catch block hides errors', sev: 'medium', cat: 'error-handling', langs: [...JS, 'java', 'csharp', 'php'],
+    re: /catch\s*(\([^)]*\))?\s*\{\s*\}/, hint: 'Failures disappear silently. Log, rethrow, or handle; if ignoring is intended, say why in a comment.' }),
+  Q({ id: 'py-bare-except', title: 'Bare except', sev: 'medium', cat: 'error-handling', langs: ['python'],
+    re: /^\s*except\s*:/, hint: 'Catches KeyboardInterrupt/SystemExit too and hides bugs. Catch the specific exception.' }),
+  Q({ id: 'py-except-pass', title: 'Exception caught and ignored', sev: 'medium', cat: 'error-handling', langs: ['python'],
+    re: /^\s*except[^:]*:\s*(pass|\.\.\.)\s*$/, hint: 'Silently swallowing errors makes failures impossible to debug. At least log it.' }),
+  Q({ id: 'go-ignored-error', title: 'Error ignored', sev: 'medium', cat: 'error-handling', langs: ['go'],
+    re: /^\s*(\w+\s*,\s*)?_\s*:?=\s*[\w.]+\(|,\s*_\s*:?=\s*[\w.]+\(/, hint: 'Discarding err hides failures. Handle it or document why it cannot fail.' }),
+  Q({ id: 'go-panic', title: 'panic in library code', sev: 'low', cat: 'error-handling', langs: ['go'],
+    re: /\bpanic\(/, file: /^(?!.*(main|_test)\.go$)/, hint: 'Return an error instead so callers can recover.' }),
+  Q({ id: 'print-stacktrace', title: 'printStackTrace / catch-all exception', sev: 'low', cat: 'error-handling', langs: ['java', 'csharp'],
+    re: /\.printStackTrace\(\)|catch\s*\(\s*(Exception|Throwable)\s+\w+\s*\)/, hint: 'Use the logger and catch the narrowest exception type you can handle.' }),
+  Q({ id: 'promise-no-catch', title: 'Promise chain without error handling', sev: 'low', cat: 'error-handling', langs: JS,
+    re: /\.then\([^;]*\)\s*;?\s*$/, unless: /\.catch\(|\bawait\b|return\s/, hint: 'A rejection here becomes an unhandled rejection. Add .catch or use try/await.' }),
+
+  // ── performance / async ──
+  Q({ id: 'sync-io-server', title: 'Blocking sync I/O in server code', sev: 'medium', cat: 'performance', langs: JS,
+    re: /\b(readFileSync|writeFileSync|appendFileSync|readdirSync|statSync|existsSync|execSync|spawnSync)\(/, file: /(server|route|handler|controller|api|middleware|service)/i,
+    hint: 'Sync calls block the event loop for every request. Use the async versions.' }),
+  Q({ id: 'json-deep-clone', title: 'JSON round-trip used to clone', sev: 'info', cat: 'performance', langs: JS,
+    re: /JSON\.parse\(\s*JSON\.stringify\(/, hint: 'Slow and lossy (Dates, undefined, Maps). Use structuredClone().' }),
+  Q({ id: 'go-defer-loop', title: 'defer inside a loop', sev: 'medium', cat: 'resources', langs: ['go'],
+    re: /^\s{2,}defer\s/, hint: 'Only if this is inside a loop: deferred calls pile up until the function returns (leaking files/locks). Close explicitly or move the body into a function.' }),
+  Q({ id: 'py-open-no-with', title: 'File opened without a context manager', sev: 'low', cat: 'resources', langs: ['python'],
+    re: /^\s*\w+\s*=\s*open\(/, hint: 'Use "with open(...) as f:" so the file is closed even on errors.' }),
+
+  // ── types ──
+  Q({ id: 'ts-any', title: 'any type', sev: 'low', cat: 'types', langs: ['typescript'],
+    re: /:\s*any\b|\bas\s+any\b|<any>/, hint: 'any turns off type checking for everything it touches. Use a real type or unknown.' }),
+  Q({ id: 'ts-ignore', title: 'Type checking or linting turned off', sev: 'low', cat: 'types', langs: JS, comments: true,
+    re: /@ts-(ignore|nocheck)\b|\/\*\s*eslint-disable\s*\*\//, hint: 'Fix the underlying error or use @ts-expect-error with a reason.' }),
+
+  // ── dead / debug code ──
+  Q({ id: 'debug-left', title: 'Debug statement left in', sev: 'low', cat: 'dead-code', langs: [...JS, 'python', 'go', 'php', 'ruby', 'java'],
+    re: /\bconsole\.(log|debug|trace|dir)\(|^\s*debugger\s*;?|^\s*print\(|\bfmt\.Print(ln|f)?\(|\bvar_dump\(|\bdd\(|\bbinding\.pry\b|System\.out\.print/,
+    file: /^(?!.*(cli|bin|scripts?|tools?|examples?)\/)(?!.*\.(test|spec)\.)/, hint: 'Use the project logger or remove it before merging.' }),
+  Q({ id: 'commented-code', title: 'Commented-out code', sev: 'info', cat: 'dead-code', langs: [...JS, 'python', 'go', 'java', 'csharp', 'php', 'ruby', 'c', 'rust'], comments: true,
+    re: /^\s*(\/\/|#)\s*(const|let|var|function|def|return|if\s*\(|for\s*\(|import|class|await|print\(|console\.)\b.*[;{:)]\s*$/, hint: 'Version control remembers old code. Delete it.' }),
+
+  // ── maintainability / readability / docs ──
+  Q({ id: 'todo', title: 'TODO / FIXME left in code', sev: 'info', cat: 'maintainability', langs: ALL, comments: true,
+    re: /\b(TODO|FIXME|HACK|XXX)\b[:\s]/, hint: 'Is this blocking for this change? Link an issue or resolve it.' }),
+  Q({ id: 'hardcoded-localhost', title: 'Hard-coded localhost URL', sev: 'low', cat: 'maintainability', langs: [...JS, 'python', 'go', 'java', 'php', 'ruby'],
+    re: /['"`]https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, hint: 'Breaks outside your machine. Read it from config / env.' }),
+  Q({ id: 'js-var', title: 'var instead of let/const', sev: 'info', cat: 'readability', langs: JS,
+    re: /^\s*var\s+[\w$]/, hint: 'var is function-scoped and hoisted. Use const (or let if reassigned).' }),
+  Q({ id: 'py-star-import', title: 'Wildcard import', sev: 'low', cat: 'maintainability', langs: ['python'],
+    re: /^\s*from\s+\S+\s+import\s+\*/, hint: 'Hides where names come from and can shadow others. Import names explicitly.' }),
+  Q({ id: 'py-none-eq', title: 'Compare to None with ==', sev: 'info', cat: 'best-practice', langs: ['python'],
+    re: /[=!]=\s*None\b/, hint: 'Use "is None" / "is not None".' }),
+  Q({ id: 'shadow-builtin', title: 'Variable shadows a built-in', sev: 'low', cat: 'readability', langs: ['python'],
+    re: /^\s*(list|dict|str|id|type|input|file|max|min|sum|len|filter|map|object|hash|format)\s*=(?!=)/, hint: 'Later code that uses the built-in breaks in confusing ways. Rename it.' }),
+];
+
+// Rules computed by scan.mjs from structure rather than one line (listed so docs/tests can find them):
+// long-function, complex-function, deep-nesting, large-file, duplicate-block, query-in-loop, await-in-loop.
 
 // Paths that strongly suggest security-relevant code. The worksheet lists these so the
 // reviewer reads them in full even when no rule fired.

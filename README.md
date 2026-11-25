@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <b>Finds vulnerabilities and unsafe code in your PRs, commits and repos, then patches them with your approval.</b><br>
-  A security-review plugin for Claude Code.
+  <b>Reviews your PRs, commits and repos for security holes and code quality, then patches them with your approval.</b><br>
+  A code reviewer for Claude Code.
 </p>
 
 <p align="center">
@@ -42,9 +42,10 @@ Then, inside any git repository:
 | `/patchhound:commit [sha]` | One commit, `HEAD` by default |
 | `/patchhound:branch [base]` | Your branch plus uncommitted work, before you open a PR |
 | `/patchhound:repo [--at <sha\|tag>]` | The whole repository, now or at any commit |
-| `/patchhound:fix SEC-001 SEC-004` | Applies fixes, showing each one and asking first |
+| `/patchhound:quality [scope]` | Code quality only: bugs, error handling, performance, maintainability |
+| `/patchhound:fix SEC-001 CQ-002` | Applies fixes, showing each one and asking first |
 
-Or just ask: *"security-review this PR"*, *"is my last commit safe?"*, *"audit this repo for DoS and unsafe code"*.
+Or just ask: *"review this PR"*, *"is my last commit safe?"*, *"what in this repo needs improving?"*, *"audit this repo for DoS and unsafe code"*.
 
 Requires Node 18+ and git. The GitHub CLI (`gh`) is optional. It's used for PR details and for checking who owns a repo.
 
@@ -54,16 +55,18 @@ Requires Node 18+ and git. The GitHub CLI (`gh`) is optional. It's used for PR d
 <tr>
 <td width="33%" valign="top"><img src="docs/assets/icon-scan.svg" width="28" alt=""><br><b>Checked, not just flagged</b><br>About 100 fast rules surface suspects. Claude then traces each one from user input to the dangerous code, and confirms or dismisses it with a reason you can read.</td>
 <td width="33%" valign="top"><img src="docs/assets/icon-eye.svg" width="28" alt=""><br><b>Catches what rules can't</b><br>Missing ownership checks, auth bypasses, logic flaws, races, and protections a diff quietly removed.</td>
-<td width="33%" valign="top"><img src="docs/assets/icon-git.svg" width="28" alt=""><br><b>Reviews exactly what changed</b><br>PR and commit scans read the files from git itself and only flag changed lines, so your local edits never skew the result.</td>
+<td width="33%" valign="top"><img src="docs/assets/icon-git.svg" width="28" alt=""><br><b>Two reviews in one</b><br>A <b>security</b> grade and a <b>code-quality</b> grade, plus a walkthrough of what the change does, file by file.</td>
 </tr>
 <tr>
 <td valign="top"><img src="docs/assets/icon-wrench.svg" width="28" alt=""><br><b>Ready-to-apply fixes</b><br>Each finding comes with a patch in your code's style. Queue fixes in the report and apply them in one approved step.</td>
 <td valign="top"><img src="docs/assets/icon-alert.svg" width="28" alt=""><br><b>Resists prompt injection</b><br>Detects text aimed at AI reviewers and hidden Unicode, and can't be told to skip code. <a href="#safe-by-design">How →</a></td>
-<td valign="top"><img src="docs/assets/icon-report.svg" width="28" alt=""><br><b>Fits your workflow</b><br>An offline interactive report, a PR comment ready to paste, and SARIF for GitHub code scanning.</td>
+<td valign="top"><img src="docs/assets/icon-report.svg" width="28" alt=""><br><b>Fits your workflow</b><br>An offline interactive report, a ready-to-paste PR comment, and SARIF for GitHub code scanning.</td>
 </tr>
 </table>
 
 ## What it finds
+
+### Security
 
 | Area | Examples |
 |---|---|
@@ -79,6 +82,21 @@ Requires Node 18+ and git. The GitHub CLI (`gh`) is optional. It's used for PR d
 | **Config** | Debug mode, root containers, privileged pods, public buckets, `0.0.0.0/0` |
 | **Prompt injection** | Instructions to AI reviewers, "don't review this", "already audited", fake system prompts, invisible Unicode tags, Trojan Source |
 
+### Code quality
+
+Severities follow a reviewer's scale: **Will break**, **Likely bug**, **Should fix**, **Refactor suggestion**, **Nitpick**.
+
+| Area | Examples |
+|---|---|
+| **Likely bugs** | `forEach(async …)` never awaited, async Promise executors, `NaN`/`typeof` mistakes, mutable default args, `is` vs `==`, Java string `==`, assignment in conditions, missed edge cases |
+| **Error handling** | Empty `catch`, bare `except`, ignored Go errors, promise chains with no `.catch`, `printStackTrace` |
+| **Performance** | N+1 queries and network calls in loops, sequential `await` in loops, blocking sync I/O in servers, JSON deep clones |
+| **Maintainability** | Long and complex functions, deep nesting, duplicated blocks across files, large files, hard-coded URLs, wildcard imports |
+| **Hygiene** | Debug prints, commented-out code, TODO/FIXME, `any` and `@ts-ignore`, `var`, loose `==`, shadowed built-ins |
+| **Tests & docs** | New logic or bug fixes without tests, changed behavior without docs (found in review) |
+
+Nitpicks run on change reviews and are capped. Whole-repo audits skip them unless you ask.
+
 Languages: JavaScript / TypeScript, Python, Go, Java / Kotlin, C#, PHP, Ruby, Rust, C / C++, Swift, shell, Dockerfiles, GitHub Actions, YAML, Terraform and HTML templates.
 
 ## How it works
@@ -86,8 +104,8 @@ Languages: JavaScript / TypeScript, Python, Go, Java / Kotlin, C#, PHP, Ruby, Ru
 The scripts handle the mechanical work and Claude handles the judgment.
 
 1. **Scope.** `target.mjs` works out exactly which files and lines to review (PR, commit, range, branch, working tree or whole repo) and how far the code can be trusted.
-2. **Rules.** `scan.mjs` runs the pattern rules on those lines and writes a worksheet: every hit to check, plus the files that deserve a full read.
-3. **Review.** Claude reads the code, traces each hit to confirm or dismiss it, and looks for what patterns can't catch.
+2. **Rules.** `scan.mjs` runs the security and quality rules plus structural checks (function length, complexity, nesting, N+1, duplication) on those lines. It writes a worksheet of every hit to check and the files that deserve a full read.
+3. **Review.** Claude reads the code on both tracks. It traces each hit to confirm or dismiss it, looks for what patterns can't catch, and writes the walkthrough.
 4. **Build.** `build.mjs` checks that the review is complete (every hit accounted for, every relevant file read, every line real), then writes the report, the PR comment and the SARIF file.
 5. **Fix.** `fix.mjs` plans the patches, shows them to you, and applies only what you approve.
 
@@ -118,9 +136,13 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 
 ## The report
 
-<p align="center"><img src="docs/assets/report-finding.png" alt="A finding: SQL injection with the vulnerable line highlighted, impact, attack scenario and fix" width="900"></p>
+<p align="center"><img src="docs/assets/report-walkthrough.png" alt="Walkthrough: summary of the change, files grouped with what changed, review effort 4 of 5" width="900"></p>
 
-- **Grade and verdict.** An A–F score plus one of *Blocks merge*, *Needs attention* or *Looks clean*.
+<p align="center"><img src="docs/assets/report-finding.png" alt="A code-quality finding: unawaited forEach(async), with the lines highlighted, a Quality tab and Likely bug / Should fix / Refactor / Nitpick labels" width="900"></p>
+
+- **Two grades and a verdict.** A–F for security and for code quality, plus *Blocks merge*, *Needs attention* or *Looks clean*.
+- **Walkthrough.** What the change does, grouped by files, with an estimated review effort.
+- **All / Security / Quality tabs.** Quality findings are labeled *Likely bug*, *Should fix*, *Refactor* or *Nitpick*.
 - **Clickable breakdowns.** Filter by severity, category or riskiest file.
 - **Each finding** shows the highlighted code, its impact, a concrete attack scenario and the fix as a diff.
 - **Queue fix** collects fixes into a single `/patchhound:fix …` command. **Copy fix prompt** hands one finding to Claude with full context.
@@ -137,7 +159,7 @@ Outputs go to `.patchhound/` in the scanned repo, which ignores itself in git:
 | `summary.md` | PR comment with collapsible findings and `diff` fix blocks |
 | `report.sarif` | Upload to GitHub code scanning or open in your IDE |
 
-See [`examples/`](examples/) for a scan of the deliberately vulnerable app in `tests/fixtures/vuln-app`.
+See [`docs/example/`](docs/example/) for a full review of the deliberately vulnerable app in `tests/fixtures/vuln-app`, and [`docs/index.html`](docs/index.html) for the project's landing page.
 
 ## Development
 
@@ -153,8 +175,8 @@ skills/patchhound/
   scripts/             target · scan · build · fix (Node, no dependencies)
   scripts/lib/rules.mjs  the rule pack
   assets/report.html   report template
-  references/          findings schema and review guide
-docs/assets/           logo, icons, screenshots
+  references/          findings schema, security and quality review guides
+docs/                  landing page (index.html), example review, logo, icons, screenshots
 tests/                 end-to-end tests and the vulnerable fixture app
 ```
 

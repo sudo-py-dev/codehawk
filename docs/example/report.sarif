@@ -7,7 +7,7 @@
         "driver": {
           "name": "PatchHound",
           "informationUri": "https://github.com/",
-          "version": "0.1.0",
+          "version": "0.2.0",
           "rules": [
             {
               "id": "patchhound/supply-chain/CWE-94",
@@ -248,6 +248,104 @@
                 ],
                 "security-severity": "3.0"
               }
+            },
+            {
+              "id": "patchhound/bug",
+              "name": "Likely bug",
+              "shortDescription": {
+                "text": "Likely bug"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "bug"
+                ]
+              }
+            },
+            {
+              "id": "patchhound/error-handling",
+              "name": "Error handling",
+              "shortDescription": {
+                "text": "Error handling"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "error-handling"
+                ]
+              }
+            },
+            {
+              "id": "patchhound/performance",
+              "name": "Performance",
+              "shortDescription": {
+                "text": "Performance"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "performance"
+                ]
+              }
+            },
+            {
+              "id": "patchhound/readability",
+              "name": "Readability",
+              "shortDescription": {
+                "text": "Readability"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "readability"
+                ]
+              }
+            },
+            {
+              "id": "patchhound/duplication",
+              "name": "Duplicated code",
+              "shortDescription": {
+                "text": "Duplicated code"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "duplication"
+                ]
+              }
+            },
+            {
+              "id": "patchhound/testing",
+              "name": "Tests",
+              "shortDescription": {
+                "text": "Tests"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "testing"
+                ]
+              }
+            },
+            {
+              "id": "patchhound/dead-code",
+              "name": "Dead & debug code",
+              "shortDescription": {
+                "text": "Dead & debug code"
+              },
+              "properties": {
+                "tags": [
+                  "maintainability",
+                  "quality",
+                  "dead-code"
+                ]
+              }
             }
           ]
         }
@@ -276,6 +374,7 @@
             "patchhoundId": ".github/workflows/greet.yml:supply-chain:GitHub Actions runs fork code with secrets"
           },
           "properties": {
+            "kind": "security",
             "severity": "critical",
             "confidence": "high",
             "security-severity": "9.5"
@@ -304,6 +403,7 @@
             "patchhoundId": "api/export.py:deserialization:Remote code execution via pickle import"
           },
           "properties": {
+            "kind": "security",
             "severity": "critical",
             "confidence": "high",
             "security-severity": "9.5"
@@ -332,6 +432,7 @@
             "patchhoundId": "src/lib/auth.js:auth:Auth middleware never verifies tokens"
           },
           "properties": {
+            "kind": "security",
             "severity": "critical",
             "confidence": "high",
             "security-severity": "9.5"
@@ -360,6 +461,7 @@
             "patchhoundId": "src/server.js:injection:SQL injection in product search"
           },
           "properties": {
+            "kind": "security",
             "severity": "critical",
             "confidence": "high",
             "security-severity": "9.5"
@@ -388,6 +490,7 @@
             "patchhoundId": "src/server.js:injection:Command injection in thumbnail endpoint"
           },
           "properties": {
+            "kind": "security",
             "severity": "critical",
             "confidence": "high",
             "security-severity": "9.5"
@@ -416,6 +519,7 @@
             "patchhoundId": "api/export.py:ssrf:SSRF in link preview"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "high",
             "security-severity": "8.0"
@@ -444,6 +548,7 @@
             "patchhoundId": "api/export.py:injection:Shell injection in ping endpoint"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "high",
             "security-severity": "8.0"
@@ -472,6 +577,7 @@
             "patchhoundId": "src/lib/auth.js:secrets:Hard-coded JWT signing secret"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "high",
             "security-severity": "8.0"
@@ -500,6 +606,7 @@
             "patchhoundId": "src/lib/db.js:prompt-injection:Hidden instructions telling AI reviewers to report no issues"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "high",
             "security-severity": "8.0"
@@ -528,6 +635,7 @@
             "patchhoundId": "src/server.js:path-traversal:Path traversal in file download"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "high",
             "security-severity": "8.0"
@@ -556,6 +664,7 @@
             "patchhoundId": "src/server.js:auth:Any user can read any order (IDOR)"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "high",
             "security-severity": "8.0"
@@ -584,6 +693,7 @@
             "patchhoundId": "api/export.py:deserialization:Unsafe YAML load of request body"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "medium",
             "security-severity": "8.0"
@@ -612,6 +722,7 @@
             "patchhoundId": "src/lib/auth.js:crypto:Predictable password reset tokens"
           },
           "properties": {
+            "kind": "security",
             "severity": "high",
             "confidence": "medium",
             "security-severity": "8.0"
@@ -640,6 +751,7 @@
             "patchhoundId": "src/server.js:auth:CORS reflects any origin with credentials"
           },
           "properties": {
+            "kind": "security",
             "severity": "medium",
             "confidence": "high",
             "security-severity": "5.5"
@@ -668,6 +780,7 @@
             "patchhoundId": "src/server.js:dos:ReDoS in email validation"
           },
           "properties": {
+            "kind": "security",
             "severity": "medium",
             "confidence": "high",
             "security-severity": "5.5"
@@ -696,6 +809,7 @@
             "patchhoundId": "api/export.py:config:Flask debugger exposed on all interfaces"
           },
           "properties": {
+            "kind": "security",
             "severity": "medium",
             "confidence": "medium",
             "security-severity": "5.5"
@@ -724,9 +838,290 @@
             "patchhoundId": "Dockerfile:supply-chain:Remote install script piped to shell in image build"
           },
           "properties": {
+            "kind": "security",
             "severity": "low",
             "confidence": "medium",
             "security-severity": "3.0"
+          }
+        },
+        {
+          "ruleId": "patchhound/bug",
+          "level": "warning",
+          "message": {
+            "text": "Mutable default argument shares tags between calls: `tags=[]` is created once, so every call without `tags` appends to the same list."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/export.py"
+                },
+                "region": {
+                  "startLine": 35,
+                  "endLine": 35
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "api/export.py:bug:Mutable default argument shares tags between calls"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "high",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/bug",
+          "level": "warning",
+          "message": {
+            "text": "Order totals are recalculated without being awaited: `orders.forEach(async …)` doesn't wait for the callbacks, so `recalcTotals` resolves before any total is written, and a failed UPDATE becomes an unhandled rejection. It also runs two queries per order (N+1)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 6,
+                  "endLine": 11
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:bug:Order totals are recalculated without being awaited"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "high",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/error-handling",
+          "level": "note",
+          "message": {
+            "text": "Config reader leaks the file and hides read errors: The file is never closed, and the bare `except: pass` swallows every error (including `KeyboardInterrupt`) and returns `None`."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/export.py"
+                },
+                "region": {
+                  "startLine": 40,
+                  "endLine": 45
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "api/export.py:error-handling:Config reader leaks the file and hides read errors"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "medium",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/performance",
+          "level": "note",
+          "message": {
+            "text": "Customers loaded one query at a time: `loadCustomers` issues one sequential query per id."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 17,
+                  "endLine": 20
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:performance:Customers loaded one query at a time"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "medium",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/error-handling",
+          "level": "note",
+          "message": {
+            "text": "Shipping cost silently returns undefined on bad input: The empty `catch` hides failures and the function falls off the end, returning `undefined`. `parseInt` never throws anyway; a missing `zoneRate` gives `NaN`, which then flows into totals."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 40,
+                  "endLine": 42
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:error-handling:Shipping cost silently returns undefined on bad input"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "medium",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/performance",
+          "level": "note",
+          "message": {
+            "text": "Blocking file read on every request: `fs.readFileSync` inside the route blocks Node's event loop while the file is read."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/server.js"
+                },
+                "region": {
+                  "startLine": 30,
+                  "endLine": 30
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/server.js:performance:Blocking file read on every request"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "medium",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/readability",
+          "level": "note",
+          "message": {
+            "text": "Shipping rules buried five levels deep: `shippingCost` nests five `if`s, so it's hard to see which branch returns what, and `==` compares the country loosely."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 24,
+                  "endLine": 38
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:readability:Shipping rules buried five levels deep"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "low",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/duplication",
+          "level": "note",
+          "message": {
+            "text": "Invoice and receipt formatters are copy-pasted: `formatReceipt` is a line-for-line copy of `formatInvoice`, including the \"Invoice for order\" heading."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 56,
+                  "endLine": 65
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:duplication:Invoice and receipt formatters are copy-pasted"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "low",
+            "confidence": "high"
+          }
+        },
+        {
+          "ruleId": "patchhound/testing",
+          "level": "note",
+          "message": {
+            "text": "Orders module has no tests: This commit adds pricing and totals logic with no tests, and the bugs above (unawaited totals, NaN shipping) are exactly what a test would catch."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:testing:Orders module has no tests"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "low",
+            "confidence": "medium"
+          }
+        },
+        {
+          "ruleId": "patchhound/dead-code",
+          "level": "note",
+          "message": {
+            "text": "Debug log left in recalcTotals: `console.log('recalculated', …)` will spam production logs."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/lib/orders.js"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 12
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "patchhoundId": "src/lib/orders.js:dead-code:Debug log left in recalcTotals"
+          },
+          "properties": {
+            "kind": "quality",
+            "severity": "info",
+            "confidence": "high"
           }
         }
       ]

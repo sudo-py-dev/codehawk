@@ -1,18 +1,31 @@
-## PatchHound security review — grade **F** (0/100)
+## PatchHound review
 
+**Security F** (0/100) · **Code quality D** (56/100)  
 **Verdict: blocks merge.** Fix the blocking issues before merging.  
-<sub>Repository @ 2f0edb5 · 7 files scanned · 26 rule hits triaged · 17 confirmed</sub>
+<sub>Commit 1e416b5 · Add shop API, orders module, export service and CI greeting · 7 files · 38 rule hits triaged · 17 security · 10 quality</sub>
 
-The public API can be fully taken over: product search runs attacker-supplied SQL, the thumbnail endpoint runs shell commands, and the auth middleware never verifies tokens. Someone also planted hidden text telling AI reviewers to call this repo clean. Fix requireAuth first.
+Not ready to merge. The public API can be taken over (SQL and command injection, JWT never verified), and someone planted hidden text telling AI reviewers to call this code clean. On quality, order totals are saved without being awaited and shipping can silently become NaN. Fix requireAuth and the injections first.
 
 > [!WARNING]
 > Reviewed code from an untrusted source and found 4 line(s) of text aimed at AI reviewers or hidden characters. AI-assisted reviews can be manipulated by prompt injection; a clean result is not a guarantee. Have a human check anything security-critical.
 
-| Critical | High | Medium | Low | Info |
-|:---:|:---:|:---:|:---:|:---:|
-| 5 | 8 | 3 | 1 | 0 |
+### Walkthrough
 
-<details><summary>`CRITICAL` <b>GitHub Actions runs fork code with secrets</b> — `.github/workflows/greet.yml:3` · CWE-94</summary>
+Adds the first version of the shop: an Express API (search, thumbnails, file download, orders), JWT auth helpers, an orders module for totals, shipping and invoices, a Python export/preview service, a Dockerfile and a GitHub Actions greeting workflow. It also adds a comment and invisible text in `db.js` telling AI reviewers to report no issues.
+
+| Files | Change summary |
+|---|---|
+| `src/server.js` | Public API routes: product search, image thumbnails via ImageMagick, authenticated file download and order lookup, email validation. |
+| `src/lib/auth.js`<br>`src/lib/db.js` | JWT middleware, reset-token helper and a pg pool wrapper. `db.js` carries text aimed at AI reviewers. |
+| `src/lib/orders.js` | Order totals recalculation, customer loading, shipping-cost rules and invoice/receipt formatting. |
+| `api/export.py` | Flask service with import (pickle), URL preview, YAML config upload, ping, plus tag and config helpers. |
+| `Dockerfile`<br>`.github/workflows/greet.yml` | Container image and a workflow that greets new pull requests. |
+
+**Estimated review effort:** 4/5 ●●●●○
+
+### Security — 17
+
+<details open><summary>`CRITICAL` <b>GitHub Actions runs fork code with secrets</b> — `.github/workflows/greet.yml:3` · CWE-94</summary>
 
 The workflow uses `pull_request_target` (runs with repository secrets and a write token) and checks out the PR's own code. It also interpolates the PR title directly into a shell `run:` step.
 
@@ -46,7 +59,7 @@ The workflow uses `pull_request_target` (runs with repository secrets and a writ
 ```
 
 </details>
-<details><summary>`CRITICAL` <b>Remote code execution via pickle import</b> — `api/export.py:11` · CWE-502</summary>
+<details open><summary>`CRITICAL` <b>Remote code execution via pickle import</b> — `api/export.py:11` · CWE-502</summary>
 
 `/import` unpickles the raw request body. Unpickling runs code embedded in the data.
 
@@ -62,7 +75,7 @@ The workflow uses `pull_request_target` (runs with repository secrets and a writ
 ```
 
 </details>
-<details><summary>`CRITICAL` <b>Auth middleware never verifies tokens</b> — `src/lib/auth.js:6` · CWE-347</summary>
+<details open><summary>`CRITICAL` <b>Auth middleware never verifies tokens</b> — `src/lib/auth.js:6` · CWE-347</summary>
 
 `requireAuth` uses `jwt.decode()`, which only reads the token without checking its signature, and calls `next()` even when decoding fails. Every route behind it is effectively public.
 
@@ -88,7 +101,7 @@ The workflow uses `pull_request_target` (runs with repository secrets and a writ
 ```
 
 </details>
-<details><summary>`CRITICAL` <b>SQL injection in product search</b> — `src/server.js:16` · CWE-89</summary>
+<details open><summary>`CRITICAL` <b>SQL injection in product search</b> — `src/server.js:16` · CWE-89</summary>
 
 The `q` query parameter is pasted straight into the SQL string, so the database runs whatever the visitor types. The route is public.
 
@@ -104,7 +117,7 @@ The `q` query parameter is pasted straight into the SQL string, so the database 
 ```
 
 </details>
-<details><summary>`CRITICAL` <b>Command injection in thumbnail endpoint</b> — `src/server.js:22` · CWE-78</summary>
+<details open><summary>`CRITICAL` <b>Command injection in thumbnail endpoint</b> — `src/server.js:22` · CWE-78</summary>
 
 `file` from the query string is interpolated into a shell command run by `exec`. Shell metacharacters run extra commands. The error handler also sends the full stack trace back.
 
@@ -305,4 +318,161 @@ The image build downloads and runs a script without verifying it, on an unpinned
 
 </details>
 
-<sub>Generated by PatchHound · 3 candidates reviewed and dismissed as false positives.</sub>
+### Code quality — 9 actionable
+
+<details><summary>`LIKELY BUG` <b>Mutable default argument shares tags between calls</b> — `api/export.py:35`</summary>
+
+`tags=[]` is created once, so every call without `tags` appends to the same list.
+
+**Why it matters:** Tags from one record leak into the next; the list grows for the life of the process.
+
+**Suggestion:** Default to `None` and create the list inside.
+
+```diff
+- def add_tags(record, tags=[]):
++ def add_tags(record, tags=None):
++     tags = [] if tags is None else tags
+```
+
+</details>
+<details><summary>`LIKELY BUG` <b>Order totals are recalculated without being awaited</b> — `src/lib/orders.js:6`</summary>
+
+`orders.forEach(async …)` doesn't wait for the callbacks, so `recalcTotals` resolves before any total is written, and a failed UPDATE becomes an unhandled rejection. It also runs two queries per order (N+1).
+
+**Why it matters:** Callers read stale totals right after recalculating, and failures disappear silently. With 500 orders this is 1,001 queries.
+
+**Suggestion:** Await the work. Better, compute all totals in one query: `UPDATE orders o SET total = s.sum FROM (SELECT order_id, SUM(price*qty) …) s WHERE …`. The patch below is the minimal correct version.
+
+```diff
+-   orders.forEach(async (order) => {
+-     const items = await db.query('SELECT price, qty FROM items WHERE order_id = $1', [order.id]);
+-     let total = 0;
+-     for (const it of items) total += it.price * it.qty;
+-     await db.query('UPDATE orders SET total = $1 WHERE id = $2', [total, order.id]);
+-   });
++   for (const order of orders) {
++     const items = await db.query('SELECT price, qty FROM items WHERE order_id = $1', [order.id]);
++     let total = 0;
++     for (const it of items) total += it.price * it.qty;
++     await db.query('UPDATE orders SET total = $1 WHERE id = $2', [total, order.id]);
++   }
+```
+
+</details>
+<details><summary>`SHOULD FIX` <b>Config reader leaks the file and hides read errors</b> — `api/export.py:40`</summary>
+
+The file is never closed, and the bare `except: pass` swallows every error (including `KeyboardInterrupt`) and returns `None`.
+
+**Why it matters:** Leaked file handles under load; a missing or unreadable config looks like an empty one.
+
+**Suggestion:** Use a context manager and let real errors surface.
+
+```diff
+- def read_config(path):
+-     f = open(path)
+-     try:
+-         return f.read()
+-     except:
+-         pass
++ def read_config(path):
++     with open(path) as f:
++         return f.read()
+```
+
+</details>
+<details><summary>`SHOULD FIX` <b>Customers loaded one query at a time</b> — `src/lib/orders.js:17`</summary>
+
+`loadCustomers` issues one sequential query per id.
+
+**Why it matters:** Latency grows linearly with the list; 200 ids means 200 round-trips.
+
+**Suggestion:** Fetch them in one query with `= ANY($1)` and keep the input order.
+
+```diff
+-   for (const id of ids) {
+-     const rows = await db.query('SELECT * FROM customers WHERE id = $1', [id]);
+-     out.push(rows[0]);
+-   }
++   const rows = await db.query('SELECT * FROM customers WHERE id = ANY($1)', [ids]);
++   const byId = new Map(rows.map((r) => [r.id, r]));
++   for (const id of ids) out.push(byId.get(id));
+```
+
+</details>
+<details><summary>`SHOULD FIX` <b>Shipping cost silently returns undefined on bad input</b> — `src/lib/orders.js:40`</summary>
+
+The empty `catch` hides failures and the function falls off the end, returning `undefined`. `parseInt` never throws anyway; a missing `zoneRate` gives `NaN`, which then flows into totals.
+
+**Why it matters:** Orders can be saved with `NaN` or `undefined` shipping and nobody is told.
+
+**Suggestion:** Validate the rate and fail loudly.
+
+```diff
+-   try {
+-     return parseInt(order.zoneRate) * order.weight;
+-   } catch (e) {}
++   const rate = Number.parseInt(order.zoneRate, 10);
++   if (Number.isNaN(rate)) throw new Error(`Invalid zoneRate for order ${order.id}`);
++   return rate * order.weight;
+```
+
+</details>
+<details><summary>`SHOULD FIX` <b>Blocking file read on every request</b> — `src/server.js:30`</summary>
+
+`fs.readFileSync` inside the route blocks Node's event loop while the file is read.
+
+**Why it matters:** One large download stalls every other request.
+
+**Suggestion:** Stream the file instead (`res.sendFile` after the path check in SEC-008), which is also async.
+
+</details>
+<details><summary>`REFACTOR SUGGESTION` <b>Shipping rules buried five levels deep</b> — `src/lib/orders.js:24`</summary>
+
+`shippingCost` nests five `if`s, so it's hard to see which branch returns what, and `==` compares the country loosely.
+
+**Why it matters:** Pricing changes are error-prone and the branches are hard to test one by one.
+
+**Suggestion:** Use guard clauses (or a small rate table) and strict equality, e.g. `if (order.country !== 'US') return intlCost(order);` then handle weight tiers flat.
+
+</details>
+<details><summary>`REFACTOR SUGGESTION` <b>Invoice and receipt formatters are copy-pasted</b> — `src/lib/orders.js:56`</summary>
+
+`formatReceipt` is a line-for-line copy of `formatInvoice`, including the "Invoice for order" heading.
+
+**Why it matters:** Fixes land in one copy and not the other; receipts already show the wrong title.
+
+**Suggestion:** Have one formatter take the heading as a parameter.
+
+```diff
+- function formatReceipt(order) {
+-   const lines = [];
+-   lines.push('Invoice for order ' + order.id);
+-   lines.push('Customer: ' + order.customerName);
+-   lines.push('Address: ' + order.address);
+-   lines.push('Items: ' + order.items.length);
+-   lines.push('Total: ' + order.total.toFixed(2));
+-   lines.push('Thank you for shopping with us');
+-   return lines.join('\n');
+- }
++ function formatReceipt(order) {
++   return formatInvoice(order).replace(/^Invoice/, 'Receipt');
++ }
+```
+
+</details>
+<details><summary>`REFACTOR SUGGESTION` <b>Orders module has no tests</b> — `src/lib/orders.js:1`</summary>
+
+This commit adds pricing and totals logic with no tests, and the bugs above (unawaited totals, NaN shipping) are exactly what a test would catch.
+
+**Suggestion:** Add unit tests for `shippingCost` tiers and the bad-rate case, and an integration test that `recalcTotals` persists totals before resolving.
+
+</details>
+
+<details><summary><b>Nitpicks (1)</b></summary>
+
+- `src/lib/orders.js:12` — **Debug log left in recalcTotals.** Use the app logger at debug level, or remove it.
+
+</details>
+
+
+<sub>Generated by PatchHound · 2 rule hits checked and dismissed.</sub>
