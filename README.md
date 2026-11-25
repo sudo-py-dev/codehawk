@@ -21,7 +21,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/report-light.png">
-    <img src="docs/assets/report-dark.png" alt="CodeHawk report: grade F, 17 findings, a warning about prompt injection, and breakdowns by category and file" width="900">
+    <img src="docs/assets/report-dark.png" alt="CodeHawk report: security grade F, code quality D, 27 findings, a warning about prompt injection, and breakdowns by category and file" width="900">
   </picture>
 </p>
 
@@ -49,11 +49,15 @@ Or just ask: *"review this PR"*, *"is my last commit safe?"*, *"what in this rep
 
 Requires Node 18+ and git. The GitHub CLI (`gh`) is optional. It's used for PR details and for checking who owns a repo.
 
+To update later, run `claude plugin marketplace update codehawk`, then start a new session.
+
+> **Coming from PatchHound?** CodeHawk is the same plugin under a new name. Remove the old one with `claude plugin uninstall patchhound@patchhound` and `claude plugin marketplace remove patchhound`, then install as above. Commands are now `/codehawk:*`, output goes to `.codehawk/`, and rule IDs in SARIF start with `codehawk/`. Old `.patchhound/` folders can be deleted.
+
 ## Why CodeHawk
 
 <table>
 <tr>
-<td width="33%" valign="top"><img src="docs/assets/icon-scan.svg" width="28" alt=""><br><b>Checked, not just flagged</b><br>About 100 fast rules surface suspects. Claude then traces each one from user input to the dangerous code, and confirms or dismisses it with a reason you can read.</td>
+<td width="33%" valign="top"><img src="docs/assets/icon-scan.svg" width="28" alt=""><br><b>Checked, not just flagged</b><br>About 140 fast rules surface suspects. Claude then traces each one from user input to the dangerous code, and confirms or dismisses it with a reason you can read.</td>
 <td width="33%" valign="top"><img src="docs/assets/icon-eye.svg" width="28" alt=""><br><b>Catches what rules can't</b><br>Missing ownership checks, auth bypasses, logic flaws, races, and protections a diff quietly removed.</td>
 <td width="33%" valign="top"><img src="docs/assets/icon-git.svg" width="28" alt=""><br><b>Two reviews in one</b><br>A <b>security</b> grade and a <b>code-quality</b> grade, plus a walkthrough of what the change does, file by file.</td>
 </tr>
@@ -169,7 +173,7 @@ npm test
 
 ```
 .claude-plugin/        plugin + marketplace manifests
-commands/              /codehawk:pr, :commit, :branch, :repo, :fix
+commands/              /codehawk:pr, :commit, :branch, :repo, :quality, :fix
 skills/codehawk/
   SKILL.md             the review procedure Claude follows
   scripts/             target · scan · show · build · fix (Node, no dependencies)
