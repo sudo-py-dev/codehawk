@@ -48,13 +48,17 @@ export const kindOf = (category) => (QUALITY_CATEGORIES[category] ? 'quality' : 
 // What each severity means on the quality track (reviewer-style levels).
 export const QUALITY_LEVEL = { critical: 'Will break', high: 'Likely bug', medium: 'Should fix', low: 'Refactor suggestion', info: 'Nitpick' };
 
+// Something a reader can check: a file:line, a line number, or a test.
+export const EVIDENCE = /[\w./-]+\.\w+:\d+|\bline \d+|\btests?\b|\bspec\b/i;
+
 export function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
-      const [k, v] = a.slice(2).split('=');
-      if (v !== undefined) args[k] = v;
+      const eq = a.indexOf('=');
+      const k = eq < 0 ? a.slice(2) : a.slice(2, eq);
+      if (eq >= 0) args[k] = a.slice(eq + 1);
       else if (argv[i + 1] && !argv[i + 1].startsWith('--')) args[k] = argv[++i];
       else args[k] = true;
     } else args._.push(a);

@@ -12,6 +12,8 @@ For every candidate answer three questions before deciding:
 
 Dismiss when the source is not attacker-influenced or the path neutralizes it. Write the reason down; it's shown in the report as "checked and cleared", which is what makes the review credible.
 
+**Every safety claim needs evidence.** "Cleaned up afterwards", "can't be reused", "only admins reach this", "validated upstream": each must point to the line that makes it true (`file:line`) or to a test that proves it. If you can't point to one, it's a guess. Go and check it, or say plainly that it's unverified. This applies to dismissals, to `notes`, and to your own reasoning about a fix.
+
 ## What the rules can't see (look for these deliberately)
 
 **Access control** — the most common serious bug in real apps.
@@ -25,6 +27,13 @@ Dismiss when the source is not attacker-influenced or the path neutralizes it. W
 - Check-then-act races (balance checks, coupon redemption, file existence then open).
 - Password reset / email change / invite flows: token reuse, no expiry, token in URL logged, account takeover via unverified email.
 - Fail-open: `catch {}` that continues, `if (!user) next()`, default-allow switches.
+
+**Multi-step state (flows kept in a cache or session)** — wizards, multi-message bot dialogs, staged edits, confirm-then-apply. The keys share a prefix (`temp_filter_*`, `panel_input:*`, `session["checkout_*"]`). Treat the flow as a lifecycle, not one key at a time:
+1. Search for the prefix and build a table of which handler sets, reads and deletes each key.
+2. Every "start fresh" entry point (new command, restart, cancel, back) must reset **every** key in the flow, not just the one you noticed.
+3. For every check that gates an action (save, confirm, pay, apply), ask whether a leftover key from an earlier, abandoned run can satisfy it.
+4. Walk the sequence: abandon a flow halfway, start a new one, then trigger the gated action early. If stale state carries over, that's a finding: data from the old run gets saved, or a check gets skipped.
+5. When one stale key is the bug, report the whole class: list every key with the same lifecycle gap in one finding, and make the fix reset all of them in the same change.
 
 **Denial of service**
 - Work proportional to input with no cap: loops, allocations, recursion depth, regexes, image/PDF/zip processing, `JSON.parse` on huge bodies, pagination `limit` from the query without a max.
@@ -57,6 +66,7 @@ Dismiss when the source is not attacker-influenced or the path neutralizes it. W
 - A diff can **remove** protection: deleted auth middleware, loosened validation, widened CORS, disabled CSRF, a `verify=False`. Look at what was removed (`show.mjs <root> --diff <file>`), not just added lines.
 - A **hardening change can break legitimate use**: a narrowed allow-list, a stricter parser, a new limit. For each, name the valid inputs it now rejects (see the quality guide's *Regressions* section) — that's a bug finding even when the change improves security.
 - When a fix lands in one code path, check its **siblings** got it too, in the same order.
+- Review each diff **with the whole file in view**, not only the hunk. On every change, walk the cancel, abandon, retry and stale-state paths, not only the happy path. Do it every time, not only when something looks suspicious.
 - A safe-looking change can make an old sink reachable (new route calling an old unsafe helper). Follow new call paths into unchanged code; report the issue at the sink, and say how the change exposed it.
 
 ## Writing it up
@@ -66,3 +76,4 @@ Dismiss when the source is not attacker-influenced or the path neutralizes it. W
 - Exploit: one concrete request/input. Show it's real without being a weapon.
 - Fix: the minimal correct change, in the codebase's own style and libraries. If the right fix is architectural, say so in `fix` and give the local mitigation in `fixCode`.
 - Don't claim certainty you don't have — lower `confidence` instead of overstating.
+- Back every "this is safe because…" with a `file:line` or a test (see *Every safety claim needs evidence*). An unbacked claim goes in `notes` as unverified, never in a dismissal.

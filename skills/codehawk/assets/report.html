@@ -672,6 +672,97 @@ body::before { display: none; }
   .ring { width: 120px; height: 120px; }
   .grade { font-size: 42px; }
 }
+
+/* ───────────────────────── resolution status ───────────────────────── */
+.progress { margin-top: var(--s-5); padding-top: var(--s-4); border-top: 1px solid var(--border); }
+.progress[hidden] { display: none; }
+.p-bar { display: flex; height: 6px; margin-top: var(--s-2); border-radius: 99px; overflow: hidden; background: var(--surface-3); }
+.p-bar span { background: var(--ok); width: 0; transition: width .7s var(--ease); }
+.p-meta [hidden] { display: none; }
+.p-bar span.pending { background: color-mix(in oklab, var(--ok) 45%, var(--surface-3)); }
+.p-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: var(--s-2); font-size: 12px; color: var(--muted); }
+.p-meta .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-inline-end: 5px; vertical-align: 1px; }
+.p-meta .dot.pending { background: color-mix(in oklab, var(--ok) 45%, var(--surface-3)); }
+.p-meta .proj b { color: var(--text-2); font-weight: 650; }
+
+.item.resolved .rail { background: var(--ok); }
+.item.resolved .t { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--muted) 55%, transparent); text-decoration-thickness: 1px; }
+.item.resolved[aria-selected="true"] .t { color: var(--text-2); }
+.res-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px 1px 4px; border-radius: 5px; color: var(--ok); background: color-mix(in oklab, var(--ok) 13%, transparent); }
+.res-tag svg { width: 11px; height: 11px; stroke-width: 2.4; }
+
+.seg .n, .tabs .n { margin-inline-start: 5px; font-size: 11px; font-weight: 600; opacity: .7; font-variant-numeric: tabular-nums; }
+
+.resolution { margin-top: var(--s-4); display: grid; grid-template-columns: auto 1fr; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-radius: var(--r); background: color-mix(in oklab, var(--ok) 8%, var(--surface-2)); border: 1px solid color-mix(in oklab, var(--ok) 30%, var(--border)); }
+.resolution .r-ic { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--ok); background: color-mix(in oklab, var(--ok) 16%, transparent); }
+.resolution .r-ic svg { width: 17px; height: 17px; stroke-width: 2.2; }
+.resolution .r-title { font-weight: 650; color: var(--text); font-size: 14px; display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.resolution .r-badge { font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; border: 1px solid color-mix(in oklab, var(--ok) 40%, transparent); color: var(--ok); }
+.resolution .r-badge.pending { border-color: var(--border-strong); color: var(--muted); }
+.resolution .r-meta { margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.resolution .r-note { margin: var(--s-2) 0 0; font-size: 13.5px; color: var(--text-2); }
+.d-head .res-tag { font-size: 11px; padding: 3px 8px 3px 6px; border-radius: 7px; }
+.detail-inner.is-resolved .callout { filter: saturate(.4); }
+
+.res-tag.partial { color: var(--sev-medium); background: color-mix(in oklab, var(--sev-medium) 14%, transparent); }
+.resolution.partial { background: color-mix(in oklab, var(--sev-medium) 6%, var(--surface-2)); border-color: color-mix(in oklab, var(--sev-medium) 28%, var(--border)); }
+.resolution.partial .r-ic { color: var(--sev-medium); background: color-mix(in oklab, var(--sev-medium) 16%, transparent); }
+.checks { list-style: none; margin: var(--s-3) 0 0; padding: 0; display: grid; gap: 6px; }
+.checks li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; font-size: 13px; color: var(--muted); }
+.checks .ch { display: flex; align-items: center; gap: var(--s-2); min-height: 18px; }
+.checks li b { font-weight: 600; color: var(--text-2); }
+.checks li.ok b { color: var(--text); }
+.checks .cb { width: 16px; height: 16px; margin-top: 1px; border-radius: 4px; border: 1.5px solid color-mix(in oklab, var(--muted) 75%, transparent); display: grid; place-items: center; transition: background .25s, border-color .25s; }
+.checks li.ok .cb { background: var(--ok); border-color: var(--ok); color: var(--bg); }
+.checks .cb svg { width: 11px; height: 11px; stroke-width: 3; }
+.checks .auto { font-size: 10px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.checks .cd { margin-top: 1px; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.checks li:not(.ok) .cd { font-style: italic; }
+.checks .cd code { font-size: 12px; }
+@keyframes tick { 0% { transform: scale(.3); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.checks li.ticked .cb { animation: tick .45s var(--ease-spring); }
+.checks li.ticked { animation: res-in .35s var(--ease) both; }
+
+.board { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-2); }
+.board .tile { display: grid; gap: 2px; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--border); background: var(--surface-2); text-align: start; cursor: pointer; transition: border-color var(--d-fast) ease, transform var(--d) var(--ease); }
+.board .tile:hover { border-color: var(--border-strong); }
+.board .tile .n { font-size: 22px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.board .tile .l { font-size: 11.5px; color: var(--muted); }
+.board .tile.ok .n { color: var(--ok); }
+.board .tile.warn .n { color: var(--sev-medium); }
+.board .tile.warn.zero .n { color: var(--muted); opacity: .6; }
+.progress .p-bar { margin-top: var(--s-3); }
+.p-new { color: var(--sev-high); font-weight: 600; }
+.p-new[hidden] { display: none; }
+.fresh { margin-top: var(--s-6); border-color: color-mix(in oklab, var(--sev-high) 35%, var(--border)) !important; }
+.fresh h2 { color: var(--text); }
+.fresh h2 .count { color: var(--sev-high); font-size: 13px; margin-inline-start: 4px; }
+.fresh ul { list-style: none; margin: var(--s-3) 0 0; padding: 0; display: grid; gap: 6px; }
+.fresh li { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 4px var(--s-3); padding: 8px 10px; border-radius: var(--r); background: var(--surface-2); font-size: 13px; }
+.fresh li .loc { color: var(--text-2); }
+.fresh li code { grid-column: 1 / -1; color: var(--muted); overflow-wrap: anywhere; }
+.item.partial .rail { background: var(--sev-medium); }
+
+/* live updates */
+@keyframes res-flash { 0% { background: color-mix(in oklab, var(--ok) 22%, var(--surface-2)); } 100% { background: transparent; } }
+@keyframes res-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes res-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes res-out { to { opacity: 0; transform: translateX(14px); height: 0; padding-block: 0; margin-block: 0; } }
+.item.just-resolved { animation: res-flash 1.4s var(--ease) both !important; }
+.item.just-resolved .res-tag { animation: res-pop .5s var(--ease-spring) both; }
+.item.just-resolved .rail { transition: background .4s ease; }
+.item.just-reopened { animation: res-flash 1s var(--ease) both !important; --ok: var(--primary); }
+.item.leaving { overflow: hidden; animation: res-out .34s var(--ease) forwards !important; pointer-events: none; }
+.resolution.enter { animation: res-in .4s var(--ease) both; }
+.resolution.enter .r-ic { animation: res-pop .55s .08s var(--ease-spring) both; }
+.list-empty.done { animation: res-in .4s var(--ease) both; }
+.live-note { position: fixed; left: 50%; top: 70px; z-index: 40; transform: translate(-50%, -8px); opacity: 0; pointer-events: none; display: flex; align-items: center; gap: var(--s-3); padding: 8px 8px 8px 14px; border-radius: 99px; font-size: 13px; background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow); transition: opacity .25s ease, transform .25s var(--ease); }
+.live-note.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.live-note .btn { height: 28px; padding: 0 12px; font-size: 12.5px; }
+@media (prefers-reduced-motion: reduce) { .item.just-resolved, .item.just-resolved .res-tag, .item.leaving, .resolution.enter, .resolution.enter .r-ic, .list-empty.done { animation: none !important; } .p-bar span { transition: none; } }
+
+.list-empty.done .big { width: 44px; height: 44px; margin: 0 auto var(--s-3); border-radius: 50%; display: grid; place-items: center; color: var(--ok); background: color-mix(in oklab, var(--ok) 14%, transparent); }
+.list-empty.done .big svg { width: 22px; height: 22px; stroke-width: 2.2; }
 </style>
 </head>
 <body>
@@ -687,6 +778,7 @@ body::before { display: none; }
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
   <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16 9.8"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></symbol>
   <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
@@ -746,6 +838,7 @@ body::before { display: none; }
       <div class="sev-grid" id="sev-grid" role="group" aria-label="Filter by severity"></div>
       <div class="stack" id="stack" aria-hidden="true"></div>
       <div class="legend-cap"><span id="stack-cap"></span><span>Click a severity to filter</span></div>
+      <div class="progress" id="progress" hidden></div>
     </div>
   </section>
 
@@ -756,6 +849,7 @@ body::before { display: none; }
 
   <section class="standards" id="standards-root" hidden></section>
   <div id="walk-root"></div>
+  <div id="fresh-root"></div>
   <div class="section-head" id="findings"><h2>Findings</h2><span class="count" id="findings-count"></span></div>
   <div id="work-root"></div>
 
@@ -771,6 +865,7 @@ body::before { display: none; }
   <button class="btn ghost" id="tray-clear">Clear</button>
   <button class="btn primary" id="tray-copy"><svg class="i"><use href="#i-wrench"/></svg>Copy fix command</button>
 </div></div>
+<div class="live-note" id="live-note" role="status" aria-live="polite"><span>A new scan finished.</span><button class="btn primary" onclick="location.reload()">Reload report</button></div>
 <div class="toast" id="toast" role="status" aria-live="polite"><svg class="i"><use href="#i-check"/></svg><span></span></div>
 
 <script id="codehawk-data" type="application/json">"__CODEHAWK_DATA__"</script>
@@ -785,6 +880,15 @@ const icon = (n) => `<svg class="i" aria-hidden="true"><use href="#i-${n}"/></sv
 const sevVar = (s) => `--sc:var(--sev-${s})`;
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const QS = new URLSearchParams(location.search);
+const isRes = (f) => !!f.resolution;
+const isDone = (f) => !!f.resolution?.verified;              // fixed and all four checks passed
+const needsAttention = (f) => !!f.resolution && !f.resolution.verified;
+const METHOD = { patch: 'Fixed with CodeHawk patch', manual: 'Fixed manually' };
+const STEPS = [['changed', 'Code changed'], ['gone', 'Problem gone'], ['everywhere', 'Fixed everywhere'], ['regression', 'No regression']];
+const resTag = (r, big) => r.verified
+  ? `<span class="res-tag" title="All four checks passed">${icon('check')}${big ? 'Resolved · verified' : 'Verified'}</span>`
+  : `<span class="res-tag partial" title="${r.passed} of 4 checks passed">${icon('check')}${big ? `Resolved · ${r.passed}/4 checked` : `${r.passed}/4`}</span>`;
+const P = D.progress || { total: D.findings.length, resolved: 0, verified: 0, projected: null };
 const still = QS.has('still'); // ?still renders the final state with no motion (print, screenshots)
 const reduced = still || matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (still) document.documentElement.classList.add('still');
@@ -807,9 +911,10 @@ try { triage = JSON.parse(localStorage.getItem(TRIAGE_KEY) || '{}'); } catch {}
 const saveTriage = () => localStorage.setItem(TRIAGE_KEY, JSON.stringify(triage));
 const QUEUE_KEY = TRIAGE_KEY.replace(':triage:', ':queue:');
 let queue = new Set();
-try { queue = new Set(JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]').filter((id) => D.findings.some((f) => f.id === id))); } catch {}
+try { queue = new Set(JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]').filter((id) => D.findings.some((f) => f.id === id && !isRes(f)))); } catch {}
 const saveQueue = () => localStorage.setItem(QUEUE_KEY, JSON.stringify([...queue]));
 function toggleQueue(id) {
+  if (isRes(D.findings.find((f) => f.id === id) || {})) return toast(`${id} is already resolved`);
   queue.has(id) ? queue.delete(id) : queue.add(id);
   saveQueue(); tray();
   toast(queue.has(id) ? `${id} queued for fixing` : `${id} removed from queue`);
@@ -839,7 +944,8 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.sev = new Set((p.get('sev') || '').split(',').filter((s) => SEVS.includes(s)));
   state.cat = p.get('cat'); state.file = p.get('file'); state.q = p.get('q') || '';
-  state.status = ['open', 'all', 'triaged'].includes(p.get('status')) ? p.get('status') : 'open';
+  const st = p.get('status') === 'resolved' ? 'done' : p.get('status');
+  state.status = ['open', 'done', 'all', 'triaged'].includes(st) ? st : 'open';
   state.kind = ['security', 'quality'].includes(p.get('kind')) ? p.get('kind') : 'all';
   state.sel = p.get('id');
 }
@@ -931,15 +1037,58 @@ function hero() {
   $('#stack').innerHTML = total ? SEVS.filter((s) => D.counts[s]).map((s, i) => `<span style="${sevVar(s)};flex:${D.counts[s]};animation-delay:${0.25 + i * 0.08}s" title="${D.counts[s]} ${s}"></span>`).join('') : '';
   $('#stack-cap').textContent = total ? `${total} finding${total > 1 ? 's' : ''}` : 'No findings';
   $('#sev-grid').onclick = (e) => { const b = e.target.closest('[data-sev]'); if (b) toggleSev(b.dataset.sev); };
+  progress();
   $('#foot-left').textContent = `Generated by CodeHawk · ${new Date(D.meta.generatedAt).toLocaleString()}${ref ? ' · ' + ref.slice(0, 12) : ''}`;
 }
 
-function countUp(el, to, fmt, dur) {
-  if (reduced || !to) { el.textContent = fmt(to); return; }
+/* ── fix status board (hero): what's done, what needs attention, what's open ── updated in place */
+function progress() {
+  const el = $('#progress');
+  const newN = (D.newIssues || []).length;
+  if (!P.total || (!P.resolved && !newN)) { el.hidden = true; return; }
+  const first = el.hidden || !el.firstElementChild;
+  el.hidden = false;
+  if (first) el.innerHTML = `
+    <div class="board">
+      <button class="tile ok" data-go="done"><span class="n num" id="b-done">0</span><span class="l">Fixed &amp; verified</span></button>
+      <button class="tile warn" data-go="open"><span class="n num" id="b-att">0</span><span class="l">Need attention</span></button>
+      <button class="tile" data-go="open"><span class="n num" id="b-open">0</span><span class="l">Not fixed yet</span></button>
+    </div>
+    <div class="p-bar" role="progressbar" aria-label="Findings fixed and verified" aria-valuemin="0"><span class="v" id="p-v"></span><span class="pending" id="p-u"></span></div>
+    <div class="p-meta"><span id="p-pct"></span><a href="#fresh" class="p-new" id="p-new" hidden></a><span class="proj" id="p-proj" title="Grades once the verified fixes land; the rings above show the original scan"></span></div>`;
+  el.querySelector('.board').onclick = (e) => { const b = e.target.closest('[data-go]'); if (b) { state.status = b.dataset.go; refresh(true); } };
+  const set = (id, v) => { const n = $(id); const from = +(n.dataset.n || 0); n.dataset.n = v; if (first || reduced) n.textContent = v; else countUp(n, v, String, 500, from); };
+  set('#b-done', P.verified); set('#b-att', P.attention ?? (P.resolved - P.verified)); set('#b-open', P.open ?? (P.total - P.resolved));
+  el.querySelector('.tile.warn').classList.toggle('zero', !(P.attention ?? 0));
+  const bar = el.querySelector('.p-bar');
+  bar.setAttribute('aria-valuemax', P.total); bar.setAttribute('aria-valuenow', P.verified);
+  const att = P.attention ?? (P.resolved - P.verified);
+  const setW = () => { $('#p-v').style.width = `${(P.verified / P.total) * 100}%`; $('#p-u').style.width = `${(att / P.total) * 100}%`; };
+  if (first && !reduced) { $('#p-v').style.width = $('#p-u').style.width = '0'; requestAnimationFrame(() => requestAnimationFrame(setW)); } else setW();
+  $('#p-pct').textContent = `${Math.round((P.verified / P.total) * 100)}% done`;
+  const pn = $('#p-new'); pn.hidden = !newN; pn.textContent = `${newN} new issue${newN === 1 ? '' : 's'} in your changes`;
+  const pj = P.projected;
+  $('#p-proj').innerHTML = pj ? `After verified fixes: ${D.focus === 'quality' ? `<b>Quality ${pj.qualityGrade}</b>` : D.focus === 'security' ? `<b>Security ${pj.grade}</b>` : `<b>Security ${pj.grade}</b> · <b>Quality ${pj.qualityGrade}</b>`}` : '';
+}
+
+/* ── new issues the fixes introduced (rule hits on lines changed since the scan) ── */
+function freshPanel() {
+  const list = D.newIssues || [];
+  const el = $('#fresh-root');
+  if (!list.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<section class="panel fresh" id="fresh" aria-labelledby="fresh-h">
+    <h2 id="fresh-h">${icon('alert')}New since the scan <span class="count">${list.length}</span></h2>
+    <p class="muted-note">Rule hits on lines changed after the scan, probably introduced by the fixes. They aren't reviewed yet: fix them, or run a new scan to triage them.</p>
+    <ul>${list.map((n) => `<li style="${sevVar(n.severity)}"><span class="sev-badge ${esc(n.severity)}"><span class="d"></span>${esc(n.severity)}</span><span class="mono loc">${esc(n.file)}:${n.line}</span><span class="t">${esc(n.title)}</span><code class="mono">${esc(n.code)}</code></li>`).join('')}</ul>
+  </section>`;
+}
+
+function countUp(el, to, fmt, dur, from = 0) {
+  if (reduced || (!to && !from)) { el.textContent = fmt(to); return; }
   const t0 = performance.now();
   const step = (t) => {
     const p = Math.min(1, (t - t0) / dur);
-    el.textContent = fmt(Math.round(to * (1 - Math.pow(1 - p, 3))));
+    el.textContent = fmt(Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3))));
     if (p < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -1035,7 +1184,7 @@ function workspace() {
         <label class="search"><span class="sr">Search findings</span>${icon('search')}<input id="q" type="search" placeholder="Search title, file, CWE…" autocomplete="off"><kbd>/</kbd></label>
         <div class="row-between">
           <div class="seg" role="group" aria-label="Status">
-            <button data-status="open">Open</button><button data-status="all">All</button><button data-status="triaged">Triaged</button>
+            <button data-status="open" title="Not fixed yet, or fixed with checks still missing">To do<span class="n" id="n-open"></span></button><button data-status="done" title="Fixed, with all four checks passed">Verified<span class="n" id="n-res">${P.verified}</span></button><button data-status="triaged">Triaged</button><button data-status="all">All</button>
           </div>
           <div class="chips" id="sev-chips" role="group" aria-label="Severity">${SEVS.filter((s) => D.counts[s]).map((s) => `<button class="chip" style="${sevVar(s)}" data-sev="${s}" aria-pressed="false" title="${cap(s)}"><span class="d"></span>${D.counts[s]}</button>`).join('')}</div>
         </div>
@@ -1081,8 +1230,9 @@ function visible() {
   return D.findings.filter((f) => {
     const t = triage[f.id];
     if (state.kind !== 'all' && f.kind !== state.kind) return false;
-    if (state.status === 'open' && t) return false;
-    if (state.status === 'triaged' && !t) return false;
+    if (state.status === 'open' && (isDone(f) || (t && !isRes(f)))) return false;
+    if (state.status === 'done' && !isDone(f)) return false;
+    if (state.status === 'triaged' && (!t || isRes(f))) return false;
     if (state.sev.size && !state.sev.has(f.severity)) return false;
     if (state.cat && f.category !== state.cat) return false;
     if (state.file && f.file !== state.file) return false;
@@ -1091,7 +1241,7 @@ function visible() {
   });
 }
 
-let firstRender = true;
+let firstRender = true, pinSel = false;
 function refresh(scrollToList) {
   if (!D.findings.length) return;
   document.querySelectorAll('[data-sev]').forEach((b) => b.setAttribute('aria-pressed', state.sev.has(b.dataset.sev)));
@@ -1108,26 +1258,35 @@ function refresh(scrollToList) {
   $('#active-filters').innerHTML = af.join('');
 
   const items = visible();
-  const nTriaged = Object.keys(triage).filter((k) => D.findings.some((f) => f.id === k)).length;
-  $('#findings-count').textContent = `${D.findings.length} total${nTriaged ? ` · ${nTriaged} triaged by you` : ''}`;
+  const nTriaged = Object.keys(triage).filter((k) => D.findings.some((f) => f.id === k && !isRes(f))).length;
+  const nOpen = D.findings.filter((f) => !isDone(f) && !(triage[f.id] && !isRes(f))).length;
+  $('#n-open').textContent = nOpen;
+  $('#n-res').textContent = P.verified;
+  $('#findings-count').textContent = `${D.findings.length} total${P.resolved ? ` · ${P.resolved} resolved` : ''}${nTriaged ? ` · ${nTriaged} triaged by you` : ''}`;
   $('#list-count').textContent = `${items.length} of ${D.findings.length} shown`;
   const list = $('#list');
-  if (!items.length) {
+  const filtered = state.sev.size || state.cat || state.file || state.q || state.kind !== 'all';
+  if (!items.length && state.status === 'open' && !filtered && P.verified) {
+    list.innerHTML = `<li class="list-empty done"><div class="big">${icon('check')}</div><b>Nothing left to do</b>${P.verified} of ${P.total} findings fixed and verified${nTriaged ? `, ${nTriaged} triaged` : ''}.${(D.newIssues || []).length ? `<br><span class="p-new">${D.newIssues.length} new issue(s) in your changes, see above.</span>` : ''}<br><button class="btn" data-show="done" style="margin-top:10px">View verified</button></li>`;
+    list.querySelector('[data-show]').onclick = () => { state.status = 'done'; refresh(false); };
+  } else if (!items.length) {
     list.innerHTML = `<li class="list-empty"><b>No findings match</b>${state.status === 'open' && nTriaged ? 'Triaged findings are hidden. ' : ''}<br><button class="btn" data-clear="all" style="margin-top:10px">Clear filters</button></li>`;
     list.querySelector('[data-clear]').onclick = clearAll;
   } else {
     list.innerHTML = items.map((f, i) => {
-      const t = triage[f.id];
-      return `<li class="item ${t ? 'dim' : ''}" role="option" data-id="${esc(f.id)}" aria-selected="false" style="${sevVar(f.severity)};animation-delay:${firstRender ? Math.min(i, 14) * 0.035 : 0}s${firstRender ? '' : ';animation:none'}">
+      const t = triage[f.id], r = f.resolution;
+      return `<li class="item ${r ? (r.verified ? 'resolved' : 'partial') : t ? 'dim' : ''}" role="option" data-id="${esc(f.id)}" aria-selected="false" style="${sevVar(f.severity)};animation-delay:${firstRender ? Math.min(i, 14) * 0.035 : 0}s${firstRender ? '' : ';animation:none'}">
         <span class="rail"></span>
         <div><div class="t">${esc(f.title)}</div>
-        <div class="m">${f.kind === 'quality' ? `<span class="kind">${QLEVEL[f.severity]}</span>` : ''}<span class="mono">${esc(f.file.split('/').pop())}:${f.line}</span>${f.kind === 'quality' && f.categoryLabel === QLEVEL[f.severity] ? '' : `<span>${esc(f.categoryLabel)}</span>`}${f.cwe ? `<span>${esc(f.cwe)}</span>` : ''}${t ? `<span class="tag">${t === 'fp' ? 'False positive' : 'Accepted'}</span>` : ''}<span class="q" ${queue.has(f.id) ? '' : 'hidden'}>${icon('wrench')}Queued</span></div></div>
+        <div class="m">${f.kind === 'quality' ? `<span class="kind">${QLEVEL[f.severity]}</span>` : ''}<span class="mono">${esc(f.file.split('/').pop())}:${f.line}</span>${f.kind === 'quality' && f.categoryLabel === QLEVEL[f.severity] ? '' : `<span>${esc(f.categoryLabel)}</span>`}${f.cwe ? `<span>${esc(f.cwe)}</span>` : ''}${r ? resTag(r) : t ? `<span class="tag">${t === 'fp' ? 'False positive' : 'Accepted'}</span>` : ''}<span class="q" ${queue.has(f.id) ? '' : 'hidden'}>${icon('wrench')}Queued</span></div></div>
       </li>`;
     }).join('');
   }
   firstRender = false;
   requestAnimationFrame(() => syncIndicators(document.querySelector('.toolbar') || document));
-  if (!state.sel || !items.some((f) => f.id === state.sel)) state.sel = items[0]?.id || null;
+  // A finding that was just resolved while you were reading it stays in the detail pane.
+  if (!state.sel || (!items.some((f) => f.id === state.sel) && !(pinSel && D.findings.some((f) => f.id === state.sel)))) state.sel = items[0]?.id || null;
+  pinSel = false;
   renderDetail();
   writeHash();
   if (scrollToList) $('#findings').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
@@ -1141,6 +1300,7 @@ function select(id, fromUser) {
 }
 
 /* ── detail ── */
+let popCard = false, quietDetail = false, tickedNow = new Set(); // live updates re-render the detail without the swap animation
 function renderDetail() {
   document.querySelectorAll('#list [data-id]').forEach((li) => {
     const on = li.dataset.id === state.sel;
@@ -1154,12 +1314,12 @@ function renderDetail() {
   const det = $('#detail');
   const f = D.findings.find((x) => x.id === state.sel);
   if (!f) { det.innerHTML = `<div class="detail-inner list-empty"><b>Nothing selected</b>Pick a finding from the list.</div>`; return; }
-  const t = triage[f.id];
+  const t = triage[f.id], r = f.resolution;
   const confN = { high: 3, medium: 2, low: 1 }[f.confidence] || 2;
   const cweNum = f.cwe ? f.cwe.replace(/\D/g, '') : null;
-  det.innerHTML = `<div class="detail-inner" style="${sevVar(f.severity)}">
+  det.innerHTML = `<div class="detail-inner ${r ? 'is-resolved' : ''}" style="${sevVar(f.severity)}">
     <button class="btn ghost back" id="back">${icon('back')}Findings</button>
-    <div class="d-head"><span class="sev-badge ${f.severity}"><span class="d"></span>${sevLabel(f)}</span><span class="d-id">${esc(f.id)}</span></div>
+    <div class="d-head"><span class="sev-badge ${f.severity}"><span class="d"></span>${sevLabel(f)}</span><span class="d-id">${esc(f.id)}</span>${r ? resTag(r, true) : ''}</div>
     <h3>${esc(f.title)}</h3>
     <div class="d-loc">${icon('file')}${f.link ? `<a href="${esc(f.link)}" target="_blank" rel="noopener">${esc(f.file)}:${f.line}${f.endLine > f.line ? '–' + f.endLine : ''}</a>` : `${esc(f.file)}:${f.line}${f.endLine > f.line ? '–' + f.endLine : ''}`}</div>
     <div class="meta-chips">
@@ -1171,20 +1331,21 @@ function renderDetail() {
       <span class="mchip" title="How sure the reviewer is that this is exploitable">Confidence <span class="conf">${[1, 2, 3].map((n) => `<i class="${n <= confN ? 'on' : ''}"></i>`).join('')}</span> ${esc(f.confidence)}</span>
       <span class="mchip">${icon(f.source === 'review' ? 'sparkle' : 'bolt')}${f.source === 'review' ? 'Found in review' : 'Rule + review'}</span>
     </div>
+    ${r ? resolutionCard(r) : ''}
     <div class="actions">
-      <button class="btn primary" data-act="queue" data-id="${esc(f.id)}" aria-pressed="false">${icon('wrench')}Queue fix</button>
-      <button class="btn" data-act="prompt">${icon('sparkle')}Copy fix prompt</button>
+      ${r ? '' : `<button class="btn primary" data-act="queue" data-id="${esc(f.id)}" aria-pressed="false">${icon('wrench')}Queue fix</button>`}
+      ${r ? '' : `<button class="btn" data-act="prompt">${icon('sparkle')}Copy fix prompt</button>`}
       ${f.fix ? `<button class="btn icon" data-act="patch" title="Copy fixed code" aria-label="Copy fixed code">${icon('copy')}</button>` : ''}
-      <button class="btn icon" data-act="link" title="Copy link to this finding" aria-label="Copy link">${icon('link')}</button>
-      <span class="spacer"></span>
+      ${r ? `<button class="btn ghost" data-act="link">${icon('link')}Copy link</button>` : `<button class="btn icon" data-act="link" title="Copy link to this finding" aria-label="Copy link">${icon('link')}</button>`}
+      ${r ? '' : `<span class="spacer"></span>
       <span class="tri" role="group" aria-label="Your triage">
         <button data-act="open" aria-pressed="${!t}">Open</button>
         <button data-act="fp" aria-pressed="${t === 'fp'}">False positive</button>
         <button data-act="accept" aria-pressed="${t === 'accepted'}">Accepted</button>
-      </span>
+      </span>`}
     </div>
-    <div class="fix-note">${icon('lock')}${f.fix ? 'Has a ready patch.' : 'Claude will write this fix.'} Queued fixes are applied only after you approve each change; nothing is committed or merged automatically.</div>
-    ${t ? `<div class="triage-note">${icon('check')}You marked this as ${t === 'fp' ? 'a false positive' : 'an accepted risk'}. Stored only in this browser.</div>` : ''}
+    ${r ? '' : `<div class="fix-note">${icon('lock')}${f.fix ? 'Has a ready patch.' : 'Claude will write this fix.'} Queued fixes are applied only after you approve each change; nothing is committed or merged automatically.</div>`}
+    ${t && !r ? `<div class="triage-note">${icon('check')}You marked this as ${t === 'fp' ? 'a false positive' : 'an accepted risk'}. Stored only in this browser.</div>` : ''}
 
     <div class="d-section"><h4>What's wrong</h4><p>${rich(f.description)}</p></div>
     ${f.dep?.advisories?.length ? advisories(f.dep) : ''}
@@ -1193,10 +1354,12 @@ function renderDetail() {
       ${f.impact ? `<div><h4>${icon('target')}${f.kind === 'quality' ? 'Why it matters' : 'Impact'}</h4><div class="callout"><p>${rich(f.impact)}</p></div></div>` : ''}
       ${f.exploit ? `<div><h4>${icon('bolt')}How it could be exploited</h4><div class="callout exploit"><p>${rich(f.exploit)}</p></div></div>` : ''}
     </div>` : ''}
-    <div class="d-section"><h4>${icon('wrench')}${f.kind === 'quality' ? 'Suggestion' : 'How to fix'}</h4><p>${rich(f.fixText)}</p></div>
+    <div class="d-section"><h4>${icon('wrench')}${r ? 'Recommended fix' : f.kind === 'quality' ? 'Suggestion' : 'How to fix'}</h4><p>${rich(f.fixText)}</p></div>
     ${f.fix ? `<div class="d-section">${diffBlock(f)}</div>` : ''}
     ${f.references?.length ? `<div class="d-section"><h4>References</h4><ul class="refs">${f.references.map((r) => `<li><a href="${esc(safeUrl(r))}" target="_blank" rel="noopener">${icon('ext')}${esc(r)}</a></li>`).join('')}</ul></div>` : ''}
   </div>`;
+  if (tickedNow.size) { tickedNow.forEach((k) => det.querySelector(`.checks [data-step="${k}"]`)?.classList.add('ticked')); tickedNow = new Set(); }
+  if (popCard || quietDetail) { if (popCard) det.querySelector('.resolution')?.classList.add('enter'); det.querySelector('.detail-inner').style.animation = 'none'; popCard = quietDetail = false; }
   syncIndicators(det, false);
   det.querySelector('#back').onclick = () => document.body.classList.remove('detail-open');
   det.querySelector('.actions').onclick = (e) => {
@@ -1218,6 +1381,23 @@ function renderDetail() {
     }
   };
   tray();
+}
+
+function resolutionCard(r) {
+  const when = r.verifiedAt || r.at;
+  return `<div class="resolution ${r.verified ? '' : 'partial'}" role="status">
+    <span class="r-ic">${icon('check')}</span>
+    <div>
+      <div class="r-title">Resolved<span class="r-badge ${r.verified ? '' : 'pending'}">${r.verified ? 'Verified · 4 of 4 checks' : `${r.passed} of 4 checks`}</span></div>
+      <div class="r-meta">${esc(METHOD[r.method] || 'Fixed')}${when ? ` · <time datetime="${esc(when)}" title="${esc(new Date(when).toLocaleString())}">${esc(relTime(when))}</time>` : ''} · in your working tree, not committed</div>
+      ${r.note ? `<p class="r-note">${rich(r.note)}</p>` : ''}
+      <ol class="checks" aria-label="Fix checklist">${STEPS.map(([k, label]) => {
+        const st = r.steps?.[k] || {};
+        const auto = st.ok && (st.by === 'rules' || (k === 'changed' && !/^fixed in /.test(st.detail || '')));
+        return `<li class="${st.ok ? 'ok' : ''}" data-step="${k}"><span class="cb" aria-hidden="true">${st.ok ? icon('check') : ''}</span><div><div class="ch"><span class="sr">${st.ok ? 'Done' : 'Not done'}: </span><b>${label}</b>${auto ? '<span class="auto">auto</span>' : ''}</div><div class="cd">${rich(st.detail || '')}</div></div></li>`;
+      }).join('')}</ol>
+    </div>
+  </div>`;
 }
 
 function owaspUrl(id) {
@@ -1384,9 +1564,11 @@ menu.querySelector('.menu-pop').onclick = (e) => {
   if (b.dataset.export === 'sarif') download(`${slug}.sarif`, JSON.stringify(sarif(), null, 2), 'application/sarif+json');
 };
 function markdown() {
-  const open = D.findings.filter((f) => !triage[f.id]);
+  const open = D.findings.filter((f) => !triage[f.id] && !isRes(f));
+  const done = D.findings.filter(isRes);
   const lab = (f) => '`' + sevLabel(f).toUpperCase() + '`';
   const L = ['## CodeHawk review', '', `**Security ${D.grade}** (${D.score}/100) · **Code quality ${D.qualityGrade}** (${D.qualityScore}/100) · ${VERDICT[D.verdict][0]}`, `<sub>${D.meta.label}</sub>`, ''];
+  if (P.resolved) L.push(`**Resolved ${P.resolved} of ${P.total}**${P.verified ? ` (${P.verified} verified)` : ''}${P.projected ? ` · after these fixes: Security **${P.projected.grade}** · Code quality **${P.projected.qualityGrade}**` : ''}`, '');
   if (D.summary) L.push(D.summary, '');
   if ((D.meta.trust && D.meta.trust.level !== 'trusted') || D.meta.injectionHits) L.push('> [!WARNING]', '> Reviewed code from an untrusted source. AI-assisted reviews can be manipulated by prompt injection; a clean result is not a guarantee.', '');
   if (D.walkthrough) {
@@ -1405,13 +1587,15 @@ function markdown() {
   if (sec.length) { L.push(`### Security — ${sec.length}`, ''); sec.forEach(block); L.push(''); }
   if (q.length) { L.push(`### Code quality — ${q.length} actionable`, ''); q.forEach(block); L.push(''); }
   if (nits.length) L.push(`<details><summary><b>Nitpicks (${nits.length})</b></summary>`, '', ...nits.map((f) => `- \`${f.file}:${f.line}\` — **${esc(f.title)}.** ${f.fixText}`), '', '</details>');
-  if (!open.length) L.push('_No open issues._');
+  if (done.length) L.push('', `### Resolved — ${done.length}`, '', ...done.map((f) => `- ${f.resolution.verified ? '✅' : `⚠️ ${f.resolution.passed}/4`} ~~${esc(f.title)}~~ — \`${f.file}:${f.line}\` · ${METHOD[f.resolution.method] || 'Fixed'} · ${STEPS.map(([k, l]) => `${f.resolution.steps?.[k]?.ok ? '☑' : '☐'} ${l}`).join(' ')}`));
+  if (!open.length) L.push('', done.length ? '_Every finding from this review has been resolved._' : '_No open issues._');
   return L.join('\n');
 }
 function sarif() {
-  // The build's SARIF (with CWE / OWASP taxonomies), minus findings you marked as false positives here.
+  // The build's SARIF (with CWE / OWASP taxonomies), minus resolved findings and ones you marked as false positives here.
   const out = JSON.parse(JSON.stringify(D.sarif || { version: '2.1.0', runs: [{ tool: { driver: { name: 'CodeHawk', rules: [] } }, results: [] }] }));
-  for (const run of out.runs) run.results = run.results.filter((r) => triage[r.properties?.findingId] !== 'fp');
+  const resolved = new Set(D.findings.filter(isRes).map((f) => f.id));
+  for (const run of out.runs) run.results = run.results.filter((r) => triage[r.properties?.findingId] !== 'fp' && !resolved.has(r.properties?.findingId));
   return out;
 }
 function download(name, text, type) {
@@ -1461,6 +1645,87 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('hashchange', () => { const before = state.sel; readHash(); if (before !== state.sel) refresh(false); });
 
+/* ── live updates: `fix.mjs resolve` rewrites live.js next to this report; we pick it up ── */
+let liveRev = D.liveRev || 0, liveFails = 0, liveOn = !!D.liveRev && !still;
+window.__codehawkLive = (m) => {
+  liveFails = 0;
+  if (!m || m.rev <= liveRev) return;
+  liveRev = m.rev;
+  if (m.scanId !== (D.meta.scanId || null)) { liveOn = false; $('#live-note').classList.add('show'); return; }
+  applyLive(m);
+};
+function poll() {
+  if (!liveOn || document.hidden) return;
+  const sc = document.createElement('script');
+  sc.src = `live.js?r=${Date.now()}`;
+  sc.onload = () => sc.remove();
+  sc.onerror = () => { sc.remove(); if (++liveFails >= 3) liveOn = false; }; // report moved away from its .codehawk folder
+  document.head.append(sc);
+}
+// Served by serve.mjs: changes are pushed the moment they're written. Polling stays as a fallback
+// for while the stream is down (and is all a file:// report has).
+let pushing = false;
+if (liveOn && window.__codehawkPush && window.EventSource) {
+  let fails = 0;
+  const es = new EventSource('events');
+  es.onopen = () => { pushing = true; fails = 0; };
+  es.addEventListener('live', (e) => { try { window.__codehawkLive(JSON.parse(e.data)); } catch {} });
+  es.onerror = () => { pushing = false; if (++fails >= 5) es.close(); }; // server stopped: fall back to polling
+}
+if (liveOn) { setInterval(() => { if (!pushing) poll(); }, 1500); document.addEventListener('visibilitychange', () => { if (!pushing) poll(); }); }
+
+function applyLive(m) {
+  const changed = [];
+  for (const f of D.findings) {
+    const now = m.resolutions[f.id] ?? null;
+    if (JSON.stringify(f.resolution ?? null) !== JSON.stringify(now)) { changed.push({ f, was: f.resolution, now }); f.resolution = now; }
+  }
+  Object.assign(P, m.progress || {});
+  const freshBefore = (D.newIssues || []).length, freshChanged = JSON.stringify(D.newIssues || []) !== JSON.stringify(m.newIssues || []);
+  D.newIssues = m.newIssues || [];
+  if (freshChanged) freshPanel();
+  progress();
+  if (!changed.length) {
+    if (freshChanged && D.newIssues.length > freshBefore) toast(`${D.newIssues.length - freshBefore} new issue${D.newIssues.length - freshBefore === 1 ? '' : 's'} in your changes`);
+    return;
+  }
+  for (const c of changed) if (c.now) queue.delete(c.f.id);
+  saveQueue(); tray();
+  const verifiedNow = changed.filter((c) => c.now?.verified && !c.was?.verified).map((c) => c.f);
+  const backToDo = changed.filter((c) => c.was?.verified && !c.now?.verified).map((c) => c.f); // reopened, or a check that failed again
+  const touched = changed.filter((c) => !verifiedNow.includes(c.f) && !backToDo.includes(c.f)).map((c) => c.f);
+  const selC = changed.find((c) => c.f.id === state.sel);
+  if (selC) {
+    popCard = !!selC.now && !selC.was;
+    // Animate just the boxes that got ticked in this update.
+    tickedNow = new Set(selC.now && selC.was ? STEPS.map(([k]) => k).filter((k) => selC.now.steps?.[k]?.ok && !selC.was.steps?.[k]?.ok) : []);
+  }
+  const flash = (ids, cls) => ids.forEach((id) => { const li = document.querySelector(`#list [data-id="${CSS.escape(id)}"]`); if (li) { li.classList.remove(cls); void li.offsetWidth; li.classList.add(cls); } });
+  // Only a fully verified fix leaves "To do"; a fix with checks missing stays, tagged with how many passed.
+  const leaving = state.status === 'open' && !reduced ? verifiedNow.map((f) => document.querySelector(`#list [data-id="${CSS.escape(f.id)}"]`)).filter(Boolean) : [];
+  if (leaving.length) {
+    for (const li of leaving) {
+      const f = D.findings.find((x) => x.id === li.dataset.id);
+      li.classList.remove('partial'); li.classList.add('resolved', 'just-resolved');
+      li.querySelector('.m .tag')?.remove(); li.querySelector('.m .res-tag')?.remove();
+      li.querySelector('.m .q')?.insertAdjacentHTML('beforebegin', resTag(f.resolution));
+    }
+    if (verifiedNow.some((f) => f.id === state.sel)) { pinSel = true; renderDetail(); }
+    setTimeout(() => {
+      leaving.forEach((li) => { li.style.height = `${li.offsetHeight}px`; li.classList.add('leaving'); });
+      setTimeout(() => { pinSel = quietDetail = true; refresh(false); flash(touched.map((f) => f.id), 'just-resolved'); flash(backToDo.map((f) => f.id), 'just-reopened'); }, 340);
+    }, 1100);
+  } else {
+    pinSel = quietDetail = true;
+    refresh(false);
+    flash([...verifiedNow, ...touched.filter((f) => f.resolution)].map((f) => f.id), 'just-resolved');
+    flash([...backToDo, ...touched.filter((f) => !f.resolution)].map((f) => f.id), 'just-reopened');
+  }
+  const one = changed.length === 1 ? changed[0] : null;
+  toast(one ? (!one.now ? `${one.f.id} reopened` : one.now.verified ? `${one.f.id} fixed and verified · 4/4` : one.was?.verified ? `${one.f.id} needs attention again · ${one.now.passed}/4` : `${one.f.id} · ${one.now.passed}/4 checks passed`)
+    : `${verifiedNow.length ? `${verifiedNow.length} verified` : ''}${verifiedNow.length && (changed.length - verifiedNow.length) ? ' · ' : ''}${changed.length - verifiedNow.length ? `${changed.length - verifiedNow.length} updated` : ''}`);
+}
+
 /* ── boot ── */
 const deepLink = /(^|[#&])id=/.test(location.hash);
 readHash();
@@ -1469,6 +1734,7 @@ hero();
 walkthrough();
 insights();
 standards();
+freshPanel();
 workspace();
 extras();
 refresh(false);
