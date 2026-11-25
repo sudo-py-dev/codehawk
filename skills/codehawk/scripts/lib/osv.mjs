@@ -32,12 +32,31 @@ export async function lookup(pkgs, { timeoutMs = 30000 } = {}) {
 
   const idsByKey = new Map();
   for (let i = 0; i < unique.length; i += BATCH) {
-    const chunk = unique.slice(i, i + BATCH);
-    const res = await post(`${API}/querybatch`, { queries: chunk.map((p) => ({ package: { name: p.name, ecosystem: p.ecosystem }, version: p.version })) }, timeoutMs);
-    (res.results || []).forEach((r, j) => { if (r?.vulns?.length) idsByKey.set(keyOf(chunk[j]), r.vulns.map((v) => v.id)); });
+    let pending = unique.slice(i, i + BATCH).map((p) => ({
+      key: keyOf(p),
+      query: { package: { name: p.name, ecosystem: p.ecosystem }, version: p.version },
+      tokens: new Set(),
+    }));
+    while (pending.length) {
+      const { results } = await post(`${API}/querybatch`, { queries: pending.map(({ query }) => query) }, timeoutMs);
+      if (!Array.isArray(results) || results.length !== pending.length) throw new Error('OSV returned an incomplete batch');
+      pending = pending.filter(({ key, query, tokens }, j) => {
+        const { vulns = [], next_page_token: token } = results[j] || {};
+        if (vulns.length) {
+          const ids = idsByKey.get(key) || new Set();
+          for (const { id } of vulns) ids.add(id);
+          idsByKey.set(key, ids);
+        }
+        if (!token) return false;
+        if (tokens.has(token)) throw new Error('OSV repeated a pagination token');
+        tokens.add(token);
+        query.page_token = token;
+        return true;
+      });
+    }
   }
 
-  const allIds = [...new Set([...idsByKey.values()].flat())];
+  const allIds = [...new Set([...idsByKey.values()].flatMap((ids) => [...ids]))];
   const ids = allIds.slice(0, MAX_DETAILS);
   const details = new Map();
   let next = 0;
@@ -51,9 +70,9 @@ export async function lookup(pkgs, { timeoutMs = 30000 } = {}) {
   for (const p of unique) {
     const list = idsByKey.get(keyOf(p));
     if (!list) continue;
-    byKey.set(keyOf(p), dedupe(list.map((id) => summarize(details.get(id) || { id }, p))));
+    byKey.set(keyOf(p), dedupe([...list].map((id) => summarize(details.get(id) || { id }, p))));
   }
-  return { byKey, advisories: allIds.length, truncated: allIds.length > ids.length ? allIds.length - ids.length : 0 };
+  return { byKey, advisories: allIds.length, truncated: allIds.length - details.size };
 }
 
 export const keyOf = (p) => `${p.ecosystem}|${normName(p)}|${p.version}`;
@@ -99,16 +118,30 @@ export function summarize(v, pkg) {
 
 export const severityOf = (score) => (score >= 9 ? 'critical' : score >= 7 ? 'high' : score >= 4 ? 'medium' : score > 0 ? 'low' : 'info');
 
-/** The lowest fixed version above the installed one, for the affected entry matching pkg. */
+/** Find fixed releases for the package and the interval containing its installed version. */
 function fixedVersion(v, pkg) {
-  const all = [];
-  for (const a of v.affected || []) {
-    if (pkg && a.package && (a.package.ecosystem !== pkg.ecosystem || normName({ ...pkg, name: a.package.name }) !== normName(pkg))) continue;
-    for (const r of a.ranges || []) for (const e of r.events || []) if (e.fixed) all.push(e.fixed);
+  const all = new Set();
+  const matching = new Set();
+  for (const affected of v.affected || []) {
+    const target = affected.package;
+    if (pkg && (!target || target.ecosystem !== pkg.ecosystem || normName(target) !== normName(pkg))) continue;
+    for (const range of affected.ranges || []) {
+      if (!['SEMVER', 'ECOSYSTEM'].includes(range.type)) continue;
+      let inInterval = false;
+      for (const event of range.events || []) {
+        if (event.introduced != null) {
+          inInterval = !pkg || event.introduced === '0' || compareVersions(pkg.version, event.introduced) >= 0;
+          continue;
+        }
+        if (event.fixed) {
+          all.add(event.fixed);
+          if (inInterval && (!pkg || compareVersions(pkg.version, event.fixed) < 0)) matching.add(event.fixed);
+        }
+        inInterval = false;
+      }
+    }
   }
-  const uniq = [...new Set(all)].sort(compareVersions);
-  const above = pkg ? uniq.filter((x) => compareVersions(x, pkg.version) > 0) : uniq;
-  return { version: above[0] || null, all: uniq };
+  return { version: [...matching].sort(compareVersions)[0] || null, all: [...all].sort(compareVersions) };
 }
 
 /** Loose version comparison that works across semver, PEP 440, Go and Maven-style versions. */
@@ -129,7 +162,16 @@ export function compareVersions(a, b) {
   if (pa === pb) return 0;
   if (!pa) return 1; // a release sorts after its pre-releases
   if (!pb) return -1;
-  return pa < pb ? -1 : 1;
+  const aIdentifiers = pa.split('.'), bIdentifiers = pb.split('.');
+  for (let i = 0; i < Math.min(aIdentifiers.length, bIdentifiers.length); i++) {
+    const x = aIdentifiers[i], y = bIdentifiers[i];
+    if (x === y) continue;
+    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
+    if (nx && ny) { if (+x !== +y) return +x - +y; continue; }
+    if (nx !== ny) return nx ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return aIdentifiers.length - bIdentifiers.length;
 }
 
 // ── CVSS v3.0 / v3.1 base score (FIRST specification, section 7) ──
