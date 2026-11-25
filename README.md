@@ -140,7 +140,8 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 
 **It can't be talked out of looking.**
 - Only you, in chat, decide what gets reviewed. No file, comment, config, ignore file or PR text can narrow the scope.
-- *"Don't review this"*, *"already audited"*, *"false positive, ignore"*, `// nosec`, `nosemgrep` and `NOSONAR` are flagged, never obeyed.
+- *"Don't review this"*, *"already audited"* and *"false positive, ignore"* are flagged as prompt injection, never obeyed.
+- `// nosec`, `nosemgrep` and `NOSONAR` are ignored: the suppressed line is still reviewed, but the marker alone isn't treated as an attack.
 - The build rejects any dismissal that relies on what the code says about itself.
 - Every relevant file must be marked reviewed, and a file that asks not to be checked can never be skipped.
 - PR and commit scans look inside `vendor/`, `dist/`, minified and lock files, flag huge one-line blobs, and also check the PR description and commit messages.

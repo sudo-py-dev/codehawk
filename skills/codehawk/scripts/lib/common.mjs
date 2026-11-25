@@ -56,8 +56,9 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
-      const [k, v] = a.slice(2).split('=');
-      if (v !== undefined) args[k] = v;
+      const eq = a.indexOf('=');
+      const k = eq < 0 ? a.slice(2) : a.slice(2, eq);
+      if (eq >= 0) args[k] = a.slice(eq + 1);
       else if (argv[i + 1] && !argv[i + 1].startsWith('--')) args[k] = argv[++i];
       else args[k] = true;
     } else args._.push(a);

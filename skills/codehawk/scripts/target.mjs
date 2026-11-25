@@ -3,7 +3,7 @@
 // uncommitted changes, or the whole repository (optionally at a given commit).
 // Writes .codehawk/scope.json and prints a short summary.
 //
-//   node target.mjs <root> [--repo [--at <sha>]] [--pr <n>] [--commit <sha>]
+//   node target.mjs <root> [--repo [--at <sha>]] [--pr <n|url> [--pr-base <ref>]] [--commit <sha>]
 //                          [--range <a>..<b>] [--base <branch>] [--working] [--json]
 import path from 'node:path';
 import fs from 'node:fs';
@@ -71,28 +71,76 @@ function subject(sha) {
   return { title, author, date };
 }
 
+/** "host/owner/repo" (lower case) for an https, ssh or scp-style git URL, or a PR URL; null if it isn't one. */
+function repoSlug(url) {
+  const u = String(url || '').trim()
+    .replace(/^git@([^:/]+):/, 'https://$1/')
+    .replace(/^ssh:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\//, 'https://$1/');
+  const m = u.match(/^https?:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/([^/]+)\/([^/?#]+?)(?:\.git)?(?:[/?#].*)?$/i);
+  return m ? `${m[1]}/${m[2]}/${m[3]}`.toLowerCase() : null;
+}
+
 let scope;
 const head = inGit ? resolve('HEAD') : null;
 
 if (args.pr) {
   if (!inGit) fail('Scanning a PR needs a git repository.', JSON_OUT);
-  const n = String(args.pr).replace(/^#/, '');
-  let meta = null;
-  const ghOut = trySh('gh', ['pr', 'view', n, '--json', 'number,title,url,author,baseRefName,headRefName,headRefOid,baseRefOid,body,isCrossRepository,headRepositoryOwner'], { cwd: root });
-  if (ghOut) meta = JSON.parse(ghOut);
-  let headSha = meta?.headRefOid && resolve(meta.headRefOid);
-  if (!headSha) {
-    // Fetch the PR head ref directly from the remote (works for forks too).
-    tryGit(root, 'fetch', '--quiet', 'origin', `+refs/pull/${n}/head:refs/codehawk/pr-${n}`);
-    headSha = resolve(`refs/codehawk/pr-${n}`) || (meta?.headRefOid && resolve(meta.headRefOid));
+  // Accept "123", "#123" or a PR URL. A URL names a repository too: it must be this checkout's
+  // origin, or the PR number would be resolved against the wrong repository.
+  const prArg = String(args.pr).trim();
+  const urlMatch = prArg.match(/^https?:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i);
+  if (!/^#?\d+$/.test(prArg) && !urlMatch) fail(`Not a PR number or pull-request URL: ${prArg}`, JSON_OUT);
+  const n = urlMatch ? urlMatch[1] : prArg.replace(/^#/, '');
+  // The configured URL, before any url.*.insteadOf rewriting: the repository the user cloned.
+  const originUrl = (tryGit(root, 'config', '--get', 'remote.origin.url') || '').trim();
+  const originSlug = repoSlug(originUrl);
+  if (urlMatch) {
+    const wanted = repoSlug(prArg);
+    if (!originSlug) fail(`${prArg} names ${wanted}, but this checkout has no "origin" remote to match it against. Run CodeHawk from a clone of ${wanted}.`, JSON_OUT);
+    if (wanted !== originSlug) fail(`${prArg} belongs to ${wanted}, but this checkout's origin is ${originSlug}. Run CodeHawk from a clone of ${wanted}, or pass a PR of this repository.`, JSON_OUT);
   }
-  if (!headSha) fail(`Could not fetch PR #${n}. Is there an "origin" remote on GitHub, and is \`gh\` signed in?`, JSON_OUT);
-  let baseRef = meta?.baseRefName ? `origin/${meta.baseRefName}` : defaultBranch();
-  if (meta?.baseRefName && !resolve(baseRef)) tryGit(root, 'fetch', '--quiet', 'origin', meta.baseRefName);
-  if (!resolve(baseRef) && meta?.baseRefOid) baseRef = meta.baseRefOid;
-  const baseSha = resolve(baseRef);
-  if (!baseSha) fail(`Could not find the PR's base branch (${baseRef}).`, JSON_OUT);
-  const mb = (tryGit(root, 'merge-base', baseSha, headSha) || baseSha).trim();
+  let meta = null;
+  // Ask gh about origin's repository explicitly, so a different `gh repo set-default` can't swap it.
+  const ghRepo = originSlug ? ['--repo', originSlug] : [];
+  const ghOut = trySh('gh', ['pr', 'view', n, ...ghRepo, '--json', 'number,title,url,author,baseRefName,headRefName,headRefOid,baseRefOid,body,isCrossRepository,headRepositoryOwner'], { cwd: root });
+  if (ghOut) meta = JSON.parse(ghOut);
+  if (meta?.url && originSlug && repoSlug(meta.url) !== originSlug) fail(`gh resolved PR #${n} to ${meta.url}, which is not this checkout's origin (${originSlug}).`, JSON_OUT);
+  // Always fetch the PR head fresh (works for forks too). A ref left by an earlier run may be an
+  // old commit, so it is read only after this fetch succeeds, never as a fallback.
+  const prRef = `refs/codehawk/pr-${n}`;
+  const fetched = tryGit(root, 'fetch', '--quiet', 'origin', `+refs/pull/${n}/head:${prRef}`) !== null;
+  let headSha = null;
+  if (fetched) {
+    headSha = resolve(prRef);
+    if (headSha && meta?.headRefOid && headSha !== meta.headRefOid) fail(`PR #${n}: origin's head is ${shortSha(headSha)} but GitHub reports ${shortSha(meta.headRefOid)}. The PR may have just been pushed to, or origin isn't the PR's repository; run it again.`, JSON_OUT);
+  } else if (meta?.headRefOid) {
+    // Fetch failed, but GitHub just told us the head commit; use it only if we already have it.
+    headSha = resolve(meta.headRefOid);
+  }
+  if (!headSha) fail(`Could not fetch PR #${n}${fetched ? '' : ' (git fetch failed)'}. Is there an "origin" remote on GitHub, and is \`gh\` signed in? An earlier fetch of this PR is not used, as it may be out of date.`, JSON_OUT);
+  // The base decides which files are reviewed, so it must be verified, never guessed. GitHub's
+  // baseRefOid wins over a local origin/<base>, which can be stale after a force-push or retarget.
+  // Without metadata the user must name the base with --pr-base; the default branch is not assumed.
+  const explicitBase = typeof args['pr-base'] === 'string' ? args['pr-base'] : null;
+  let baseSha = null;
+  if (meta?.baseRefOid) {
+    baseSha = resolve(meta.baseRefOid);
+    if (!baseSha && meta.baseRefName) { tryGit(root, 'fetch', '--quiet', 'origin', meta.baseRefName); baseSha = resolve(meta.baseRefOid); }
+    if (!baseSha) { tryGit(root, 'fetch', '--quiet', 'origin', meta.baseRefOid); baseSha = resolve(meta.baseRefOid); }
+    if (!baseSha) fail(`PR #${n}: GitHub reports base ${meta.baseRefName || ''} at ${shortSha(meta.baseRefOid)}, but that commit couldn't be fetched from origin.`, JSON_OUT);
+    if (explicitBase && resolve(explicitBase) !== baseSha) fail(`PR #${n}: --pr-base ${explicitBase} is not the base GitHub reports (${meta.baseRefName || ''} at ${shortSha(baseSha)}).`, JSON_OUT);
+  } else if (explicitBase) {
+    baseSha = resolve(explicitBase);
+    if (!baseSha) fail(`PR #${n}: --pr-base ${explicitBase} is not a commit or branch in this checkout. Fetch it first.`, JSON_OUT);
+  } else {
+    fail(`PR #${n}: couldn't get the PR's base from GitHub (is \`gh\` installed and signed in?), so the files to review can't be verified. Pass the base the PR targets, e.g. --pr ${n} --pr-base origin/release-2.0.`, JSON_OUT);
+  }
+  // Without a common ancestor, diffing base..head would include changes that aren't the PR's.
+  const mb = (tryGit(root, 'merge-base', baseSha, headSha) || '').trim();
+  if (!mb) {
+    const shallow = (tryGit(root, 'rev-parse', '--is-shallow-repository') || '').trim() === 'true';
+    fail(`PR #${n}: Git found no common ancestor of the base (${shortSha(baseSha)}) and the PR head (${shortSha(headSha)}), so the PR's own changes can't be told apart. ${shallow ? 'This checkout is shallow: run `git fetch --unshallow origin` and try again.' : 'The histories are unrelated: check the PR targets this repository\'s branch.'}`, JSON_OUT);
+  }
   scope = {
     mode: 'pr', ref: headSha, base: mb,
     label: `PR #${n}${meta?.title ? ' · ' + meta.title : ''}`,
