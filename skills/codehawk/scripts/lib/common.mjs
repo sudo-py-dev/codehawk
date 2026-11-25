@@ -89,11 +89,24 @@ export function isGitRepo(root) {
   return (tryGit(root, 'rev-parse', '--is-inside-work-tree') || '').trim() === 'true';
 }
 
+function checkOutputPath(file, isExpectedType) {
+  const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (stat && !isExpectedType(stat)) throw new Error(`Unsafe CodeHawk output path: ${file}`);
+}
+
+export function outputPath(root) {
+  const dir = path.join(root, OUT_DIR);
+  checkOutputPath(dir, (stat) => stat.isDirectory());
+  return dir;
+}
+
 export function outDir(root) {
-  const d = path.join(root, OUT_DIR);
-  fs.mkdirSync(d, { recursive: true });
+  const d = outputPath(root);
+  fs.mkdirSync(d, { recursive: true, mode: 0o700 });
+  outputPath(root);
   const gi = path.join(d, '.gitignore');
-  if (!fs.existsSync(gi)) fs.writeFileSync(gi, '# CodeHawk scan output\n*\n');
+  checkOutputPath(gi, (stat) => stat.isFile());
+  if (!fs.existsSync(gi)) writeOutput(gi, '# CodeHawk scan output\n*\n');
   return d;
 }
 
@@ -104,8 +117,23 @@ export function readJson(file, fallback) {
   }
 }
 
+export function writeOutput(file, contents) {
+  const dir = path.dirname(file);
+  checkOutputPath(dir, (stat) => stat.isDirectory());
+  checkOutputPath(file, (stat) => stat.isFile());
+  const staging = fs.mkdtempSync(path.join(dir, '.write-'));
+  const temp = path.join(staging, 'output');
+  try {
+    fs.writeFileSync(temp, contents, { flag: 'wx', mode: 0o600 });
+    checkOutputPath(dir, (stat) => stat.isDirectory());
+    fs.renameSync(temp, file);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 export function writeJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+  writeOutput(file, JSON.stringify(data, null, 2) + '\n');
 }
 
 /** Read a file either from the working tree (ref null) or from a git object. */

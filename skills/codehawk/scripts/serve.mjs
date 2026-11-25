@@ -22,13 +22,13 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, OUT_DIR, readJson, fail } from './lib/common.mjs';
+import { parseArgs, outputPath, readJson, writeJson, fail } from './lib/common.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 for (const k of ['stop', 'json', 'foreground']) if (typeof args[k] === 'string') { args._.push(args[k]); args[k] = true; }
 const root = path.resolve(args._[0] || '.');
 const JSON_OUT = !!args.json;
-const dir = path.join(root, OUT_DIR);
+const dir = outputPath(root);
 const stateFile = path.join(dir, 'serve.json');
 const report = path.join(dir, 'report.html');
 const say = (obj, text) => { if (JSON_OUT) process.stdout.write(JSON.stringify(obj) + '\n'); else console.log(text); };
@@ -174,7 +174,7 @@ function serve() {
   server.listen(+args.port || 0, '127.0.0.1', () => {
     port = server.address().port;
     const url = `http://127.0.0.1:${port}/${token}/report.html`;
-    fs.writeFileSync(stateFile, JSON.stringify({ pid: process.pid, port, token, url, startedAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
+    writeJson(stateFile, { pid: process.pid, port, token, url, startedAt: new Date().toISOString() });
     lastSent = liveMsg();
     report_({ ok: true, url, idle: idleMin });
     if (process.send) process.disconnect?.();
