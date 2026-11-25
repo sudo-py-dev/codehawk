@@ -21,7 +21,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/report-light.png">
-    <img src="docs/assets/report-dark.png" alt="CodeHawk report: security grade F, code quality D, 27 findings, a warning about prompt injection, and breakdowns by category and file" width="900">
+    <img src="docs/assets/report-dark.png" alt="CodeHawk report with score donuts for security (F, 0/100) and code quality (D, 56/100), a prompt-injection warning, and 27 findings by severity" width="900">
   </picture>
 </p>
 
@@ -179,7 +179,7 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 
 <p align="center"><img src="docs/assets/report-walkthrough.png" alt="Walkthrough: summary of the change, files grouped with what changed, review effort 4 of 5" width="900"></p>
 
-<p align="center"><img src="docs/assets/report-finding.png" alt="A code-quality finding: unawaited forEach(async), with the lines highlighted, a Quality tab and Likely bug / Should fix / Refactor / Nitpick labels" width="900"></p>
+<p align="center"><img src="docs/assets/report-finding.png" alt="Order totals finding with the Quality tab selected, highlighted source lines, and the triage controls aligned below the fix buttons" width="900"></p>
 
 - **Two score charts and a verdict.** Security and code quality each get a donut chart with an A–F grade in the center and a score out of 100 beside it. The verdict is *Blocks merge*, *Needs attention* or *Looks clean*. Each finding shows its point deduction, and the charts update live as fixes pass verification or findings reopen.
 - **Walkthrough.** What the change does, grouped by files, with an estimated review effort.
