@@ -100,10 +100,10 @@ Schema and example: [references/findings-schema.md](references/findings-schema.m
 ## 5. Build
 
 ```
-node ${CLAUDE_SKILL_DIR}/scripts/build.mjs <root> --open
+node ${CLAUDE_SKILL_DIR}/scripts/build.mjs <root>
 ```
 
-It refuses to build until every candidate is confirmed or dismissed and every finding points at a real line. Fix what it reports and rebuild. (`--partial` only if the user asked for a quick pass; say so.) If you're in an app with a browser/preview pane, you can open `.codehawk/report.html` there instead of `--open`.
+It refuses to build until every candidate is confirmed or dismissed and every finding points at a real line. Fix what it reports and rebuild. (`--partial` only if the user asked for a quick pass; say so.) **Always show the user the report as soon as it builds — every scan, every scope.** build.mjs opens `.codehawk/report.html` in the default browser by itself (it prints `OPENED`). If you're in an app with a browser/preview pane (e.g. the Claude desktop app), also open the `file://` path from the `REPORT` line there so the user sees it beside the chat; pass `--no-open` in that case to avoid a second window. If neither happened (headless/SSH), give the user the full `file://` path to open.
 
 ## 6. Report back
 
