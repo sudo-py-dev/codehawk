@@ -137,8 +137,261 @@ test('fixes need a plan token, apply only matching code, and never commit', () =
   assert.match(fs.readFileSync(path.join(dir, sql.file), 'utf8'), /LIKE \$1'/);
   assert.equal(git(dir, 'rev-parse', 'HEAD'), before, 'must not commit');
   if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(dir, sql.file)).mode & 0o777, 0o755, 'apply keeps the file mode');
-  assert.ok(!fs.existsSync(path.join(dir, sql.file) + '.codehawk-tmp'), 'no temp file left behind');
+  assert.deepEqual(fs.readdirSync(path.dirname(path.join(dir, sql.file))).filter((n) => n.includes('.codehawk-')), [], 'no temp file left behind');
   assert.equal(runFail('fix.mjs', 'apply', dir, '--token', plan.token).ok, false); // token is single-use
+});
+
+// Sets up a scanned repo with one patchable SQLi finding; `prep` can change the file first.
+function sqlFixRepo(prep) {
+  const dir = repo();
+  run('target.mjs', dir, '--repo');
+  run('scan.mjs', dir);
+  const c = cands(dir);
+  const sql = c.find((x) => x.rule === 'sql-concat');
+  if (prep) prep(dir, sql);
+  fs.writeFileSync(path.join(dir, '.codehawk', 'findings.json'), JSON.stringify({
+    reviewed: readList(dir),
+    findings: [{ title: 'SQLi', severity: 'critical', category: 'injection', file: sql.file, line: sql.line, candidates: [sql.id],
+      description: 'x', fix: 'bind', fixCode: "const pattern = `%${q}%`;\nconst rows = await db.query('SELECT * FROM products WHERE name LIKE $1', [pattern]);" }],
+    dismissed: [{ candidates: c.filter((x) => x.id !== sql.id).map((x) => x.id), reason: 'checked by hand in this test fixture' }],
+  }));
+  run('build.mjs', dir, '--no-open');
+  return { dir, sql };
+}
+
+test('apply refuses an edited plan and never writes through planted symlinks', () => {
+  const { dir, sql } = sqlFixRepo();
+  const planFile = path.join(dir, '.codehawk', 'fix-plan.json');
+  const plan = run('fix.mjs', 'plan', dir, '--all');
+  const saved = fs.readFileSync(planFile, 'utf8');
+  const tampered = JSON.parse(saved);
+  tampered.items.find((i) => i.status === 'ready').after = ['require("child_process").exec("curl evil")'];
+  fs.writeFileSync(planFile, JSON.stringify(tampered));
+  assert.match(runFail('fix.mjs', 'apply', dir, '--token', plan.token).error, /changed after it was shown/);
+  fs.writeFileSync(planFile, saved);
+  if (process.platform === 'win32') return;
+  // The old fixed temp name, planted as a symlink to a file outside the repo, is never followed.
+  const outside = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-out-')), 'bashrc');
+  fs.writeFileSync(outside, 'ORIGINAL\n');
+  fs.symlinkSync(outside, path.join(dir, sql.file) + '.codehawk-tmp');
+  assert.equal(run('fix.mjs', 'apply', dir, '--token', plan.token).applied.length, 1);
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'ORIGINAL\n');
+  assert.ok(!fs.lstatSync(path.join(dir, sql.file)).isSymbolicLink());
+  // A tracked file that is itself a symlink out of the repo is not patched at all.
+  const { dir: d2, sql: s2 } = sqlFixRepo();
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-out-')), 'real.js');
+  fs.renameSync(path.join(d2, s2.file), out);
+  fs.symlinkSync(out, path.join(d2, s2.file));
+  assert.equal(run('fix.mjs', 'plan', d2, '--all').items[0].status, 'missing', 'a symlink out of the repo is not patched');
+});
+
+test('apply keeps each line ending and resolve checks the evidence it cites', () => {
+  const { dir, sql } = sqlFixRepo((d, f) => {
+    const p = path.join(d, f.file);
+    const lines = fs.readFileSync(p, 'utf8').split('\n');
+    lines[0] += '\r'; // one CRLF line in an LF file
+    fs.writeFileSync(p, lines.join('\n'));
+  });
+  const p = path.join(dir, sql.file);
+  const plan = run('fix.mjs', 'plan', dir, '--all');
+  const id = plan.items[0].id;
+  run('fix.mjs', 'apply', dir, '--token', plan.token);
+  const after = fs.readFileSync(p, 'utf8');
+  assert.ok(after.split('\n')[0].endsWith('\r'), 'the untouched CRLF line keeps its ending');
+  assert.equal((after.match(/\r\n/g) || []).length, 1, 'no other line was converted');
+  assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', 'still works: src/nope.js:3').error, /isn't a file in the repo/);
+  assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', `still works: ${sql.file}:99999`).error, /has no line 99999/);
+  assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', 'no test needed').error, /can't be checked/);
+  assert.equal(run('fix.mjs', 'resolve', dir, id, '--regression', `same rows for empty search: ${sql.file}:${sql.line}`).resolved[0], id);
+});
+
+test('resolution status: apply marks resolved, resolve/reopen update every output, a new scan starts clean', () => {
+  const dir = repo();
+  run('target.mjs', dir, '--repo');
+  run('scan.mjs', dir);
+  const c = cands(dir);
+  const sql = c.find((x) => x.rule === 'sql-concat');
+  fs.writeFileSync(path.join(dir, '.codehawk', 'findings.json'), JSON.stringify({
+    reviewed: readList(dir),
+    findings: [{ title: 'SQLi', severity: 'critical', category: 'injection', file: sql.file, line: sql.line, candidates: [sql.id],
+      description: 'x', fix: 'bind', fixCode: "const pattern = `%${q}%`;\nconst rows = await db.query('SELECT * FROM products WHERE name LIKE $1', [pattern]);" },
+    { title: 'Swallowed error', severity: 'medium', category: 'error-handling', file: sql.file, line: 1, description: 'x', fix: 'x' }],
+    dismissed: [{ candidates: c.filter((x) => x.id !== sql.id).map((x) => x.id), reason: 'checked by hand in this test fixture' }],
+  }));
+  run('build.mjs', dir, '--no-open');
+  const out = path.join(dir, '.codehawk');
+  const report = () => JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8'));
+  const byTitle = (t) => report().findings.find((f) => f.title === t);
+  const secId = byTitle('SQLi').id, cqId = byTitle('Swallowed error').id;
+  assert.equal(report().progress.resolved, 0);
+
+  // Before any fix, resolve re-runs the rule on the file, sees it still matches, and refuses.
+  const early = run('fix.mjs', 'resolve', dir, secId);
+  assert.deepEqual(early.resolved, []);
+  assert.equal(early.refused[0].id, secId);
+  assert.equal(byTitle('SQLi').resolution, null);
+
+  // Applying the patch ticks the three scripted steps; only the regression check waits for Claude.
+  assert.deepEqual(run('fix.mjs', 'plan', dir, '--severity', 'critical').items.map((i) => i.id), [secId], 'severity picks ids without reading report.json');
+  const plan = run('fix.mjs', 'plan', dir, secId);
+  const applied = run('fix.mjs', 'apply', dir, '--token', plan.token);
+  assert.deepEqual(applied.resolved, [secId]);
+  let sq = byTitle('SQLi').resolution;
+  assert.equal(sq.method, 'patch');
+  assert.deepEqual([sq.steps.changed.ok, sq.steps.gone.ok, sq.steps.gone.by, sq.steps.everywhere.ok, sq.steps.everywhere.by, sq.steps.regression.ok], [true, true, 'rules', true, 'rules', false]);
+  assert.match(sq.steps.everywhere.detail, /no other unhandled matches|no other matches/);
+  assert.equal(sq.passed, 3);
+  assert.equal(sq.verified, false, 'verified only at 4/4');
+  assert.equal(run('fix.mjs', 'plan', dir, secId).items[0].status, 'resolved', 'a resolved finding is not re-planned');
+
+  // The same bug copied somewhere nobody reviewed: the sibling search finds it and the step
+  // un-ticks; the check sweep also lists it as new in the changes. Removing it clears both.
+  const copy = path.join(dir, 'src', 'lib', 'search.js');
+  fs.writeFileSync(copy, "export const find = (db, q) => db.query(`SELECT * FROM products WHERE name LIKE '%${q}%'`);\n");
+  const chk = run('fix.mjs', 'check', dir);
+  assert.equal(chk.attention[0].id, secId);
+  assert.deepEqual(chk.attention[0].missing, ['everywhere', 'regression']);
+  assert.match(byTitle('SQLi').resolution.steps.everywhere.detail, /same pattern still at `src\/lib\/search\.js:1`/);
+  assert.ok(chk.newIssues.some((n) => n.file === 'src/lib/search.js' && n.rule === 'sql-concat'), 'new issue in the changes');
+  fs.rmSync(copy);
+  assert.equal(run('fix.mjs', 'check', dir).newIssues.length, 0);
+  assert.equal(byTitle('SQLi').resolution.steps.everywhere.ok, true);
+
+  // Evidence must be checkable; steps added in a later call are merged with earlier ones.
+  assert.match(runFail('fix.mjs', 'resolve', dir, secId, '--regression', 'looked around, all fine').error, /must cite a file:line/);
+  const done = run('fix.mjs', 'resolve', dir, secId, '--regression', 'empty search still lists everything: src/server.js:20 passes "%%" as data');
+  sq = byTitle('SQLi').resolution;
+  assert.equal(sq.passed, 4);
+  assert.equal(sq.verified, true);
+  assert.equal(done.progress.verified, 1);
+
+  // A finding no rule backs, whose flagged line didn't change: refused until something proves the fix.
+  const r0 = run('fix.mjs', 'resolve', dir, cqId);
+  assert.deepEqual(r0.resolved, []);
+  assert.match(r0.refused[0].reason, /flagged code is still there/);
+  // The fix landed in another file: --changed is checked against git, not taken on trust.
+  fs.writeFileSync(path.join(dir, 'src', 'lib', 'errors.js'), 'export const rethrow = (e) => { console.error(e); throw e; };\n');
+  assert.equal(run('fix.mjs', 'resolve', dir, cqId, '--changed', 'src/lib/db.js:3').refused.length, 1, 'an unchanged file is rejected');
+  const r1 = run('fix.mjs', 'resolve', dir, cqId, '--changed', 'src/lib/errors.js:1', '--evidence', 'src/lib/errors.js:1 logs and rethrows', '--note', 'Logged and rethrown');
+  assert.deepEqual(r1.resolved, [cqId]);
+  assert.match(byTitle('Swallowed error').resolution.steps.changed.detail, /errors\.js is new since the scan/);
+  assert.equal(byTitle('Swallowed error').resolution.passed, 2);
+  const r = run('fix.mjs', 'resolve', dir, cqId, '--siblings', 'none: only catch block in src/lib/db.js:6', '--regression', 'errors still reach the caller: src/lib/errors.js:1 rethrows');
+  assert.equal(r.progress.resolved, 2);
+  assert.equal(r.progress.verified, 2);
+  assert.ok(r.progress.projected.score > report().score, 'projected score improves');
+  assert.equal(r.progress.projected.grade, 'A');
+  assert.equal(byTitle('Swallowed error').resolution.note, 'Logged and rethrown', 'the note is kept');
+  assert.equal(byTitle('Swallowed error').resolution.steps.changed.ok, true, 'a --changed step is kept on later calls');
+  // The open report polls live.js; it must carry the same state.
+  const live = fs.readFileSync(path.join(out, 'live.js'), 'utf8');
+  assert.match(live, /^window\.__codehawkLive && window\.__codehawkLive\(/);
+  const msg = JSON.parse(live.slice(live.indexOf('(', 30) + 1, live.lastIndexOf(')')));
+  assert.equal(msg.scanId, report().meta.scanId);
+  assert.equal(msg.rev, report().liveRev);
+  assert.equal(msg.resolutions[cqId].passed, 4);
+  const html = fs.readFileSync(path.join(out, 'report.html'), 'utf8');
+  assert.match(html, /"resolution":\{"status":"resolved"/);
+  const md = fs.readFileSync(path.join(out, 'summary.md'), 'utf8');
+  assert.match(md, /2 of 2 fixed and verified/);
+  assert.match(md, /fixed and verified, and the changes introduced nothing new/);
+  assert.match(md, /### Resolved — 2/);
+  assert.doesNotMatch(md, /### Security/, 'resolved findings leave the open sections');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(out, 'report.sarif'), 'utf8')).runs[0].results.length, 0, 'resolved findings leave the SARIF');
+
+  // A rebuild of the same scan keeps the status; reopen clears it.
+  run('build.mjs', dir, '--no-open');
+  assert.equal(report().progress.resolved, 2);
+  // …and still compares against the code as scanned, not the fixed working tree it re-read.
+  assert.equal(run('fix.mjs', 'resolve', dir, secId).checklists[0].steps.changed.ok, true);
+  assert.doesNotMatch(byTitle('SQLi').snippet.lines.join('\n'), /const pattern/);
+  run('fix.mjs', 'reopen', dir, cqId);
+  assert.equal(byTitle('Swallowed error').resolution, null);
+  assert.equal(runFail('fix.mjs', 'resolve', dir, 'SEC-999').ok, false);
+
+  // A new scan starts with everything open, even with the old resolutions file still there.
+  run('target.mjs', dir, '--repo');
+  run('scan.mjs', dir);
+  const c2 = cands(dir);
+  fs.writeFileSync(path.join(out, 'findings.json'), JSON.stringify({ reviewed: readList(dir), findings: [], dismissed: c2.length ? [{ candidates: c2.map((x) => x.id), reason: 'checked by hand in this test fixture' }] : [] }));
+  run('build.mjs', dir, '--no-open');
+  assert.equal(report().progress.resolved, 0);
+});
+
+test('serve.mjs: local-only, secret URL, read-only, pushes resolutions, reuses and stops', async () => {
+  const dir = repo();
+  run('target.mjs', dir, '--repo');
+  run('scan.mjs', dir);
+  const c = cands(dir);
+  const sql = c.find((x) => x.rule === 'sql-concat');
+  fs.writeFileSync(path.join(dir, '.codehawk', 'findings.json'), JSON.stringify({
+    reviewed: readList(dir),
+    findings: [{ title: 'Swallowed error', severity: 'medium', category: 'error-handling', file: sql.file, line: 1, description: 'x', fix: 'x' }],
+    dismissed: [{ candidates: c.map((x) => x.id), reason: 'checked by hand in this test fixture' }],
+  }));
+  run('build.mjs', dir, '--no-open');
+  const started = run('serve.mjs', dir, '--idle', '1');
+  try {
+    const u = new URL(started.url);
+    assert.equal(u.hostname, '127.0.0.1');
+    assert.match(u.pathname, /^\/[0-9a-f]{32}\/report\.html$/);
+    const secret = u.pathname.split('/')[1];
+    const get = (p, { method = 'GET', headers = {} } = {}) => new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: u.port, path: p, method, headers }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve({ status: res.statusCode, body: b, headers: res.headers })); });
+      req.on('error', reject); req.end();
+    });
+    const page = await get(u.pathname);
+    assert.equal(page.status, 200);
+    assert.match(page.body, /window\.__codehawkPush = true/);
+    assert.equal(page.headers['cache-control'], 'no-store');
+    assert.equal((await get('/report.html')).status, 404, 'no secret, no report');
+    assert.equal((await get(`/${'0'.repeat(32)}/report.html`)).status, 404, 'wrong secret');
+    assert.equal((await get(`/${secret}/findings.json`)).status, 404, 'only the report files are served');
+    assert.equal((await get(`/${secret}/../findings.json`)).status, 404);
+    assert.equal((await get(u.pathname, { headers: { Host: 'evil.example:' + u.port } })).status, 403, 'DNS rebinding blocked');
+    assert.equal((await get(u.pathname, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+    assert.equal((await get(u.pathname, { method: 'POST' })).status, 405, 'read-only');
+    assert.equal(run('serve.mjs', dir).url, started.url, 'a second call reuses the running server');
+
+    // The event stream pushes a resolution the moment fix.mjs writes it.
+    const id = JSON.parse(fs.readFileSync(path.join(dir, '.codehawk', 'report.json'), 'utf8')).findings[0].id;
+    const pushed = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('no push within 5s')), 5000);
+      const req = http.get({ host: '127.0.0.1', port: u.port, path: `/${secret}/events` }, (res) => {
+        let buf = '';
+        res.on('data', (d) => {
+          buf += d;
+          if (buf.includes('event: live') && !buf.includes('"resolutions"')) return;
+          const msgs = buf.split('\n\n').filter((m) => m.startsWith('event: live')).map((m) => JSON.parse(m.split('\ndata: ')[1]));
+          if (!msgs.length) return;
+          if (msgs.length === 1 && !msgs[0].resolutions[id]) { run('fix.mjs', 'resolve', dir, id, '--evidence', 'test fixture: src/server.js:1'); return; }
+          const last = msgs.at(-1);
+          if (last.resolutions[id]) { clearTimeout(timer); req.destroy(); resolve(last); }
+        });
+      });
+      req.on('error', () => {});
+    });
+    assert.equal(pushed.resolutions[id].status, 'resolved');
+    assert.equal(pushed.progress.resolved, 1);
+  } finally {
+    run('serve.mjs', dir, '--stop');
+  }
+  assert.ok(!fs.existsSync(path.join(dir, '.codehawk', 'serve.json')));
+});
+
+test('dismissals that claim safety without pointing to a line or test get a warning', () => {
+  const dir = repo();
+  run('target.mjs', dir, '--repo');
+  run('scan.mjs', dir);
+  const c = cands(dir);
+  const write = (reason) => fs.writeFileSync(path.join(dir, '.codehawk', 'findings.json'), JSON.stringify({
+    reviewed: readList(dir), findings: [],
+    dismissed: [{ candidates: [c[0].id], reason }, { candidates: c.slice(1).map((x) => x.id), reason: 'checked by hand in this test fixture' }],
+  }));
+  write('the temp keys are cleaned up afterwards');
+  assert.match(run('build.mjs', dir, '--no-open').warnings.join('\n'), /claims "cleaned up" but names no file:line or test/);
+  write('the temp keys are cleaned up in src/server.js:12 on every restart');
+  assert.doesNotMatch(run('build.mjs', dir, '--no-open').warnings.join('\n'), /names no file:line/);
 });
 
 test('cannot be talked out of reviewing: self-claims and skipping injected files are rejected', () => {

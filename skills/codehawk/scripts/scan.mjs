@@ -12,7 +12,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { parseArgs, outDir, readJson, writeJson, readAt, tryGit, fail, SEVERITIES, CATEGORIES, kindOf, toolVersion } from './lib/common.mjs';
-import { RULES, QUALITY_RULES, HOTSPOT_PATH, entropy } from './lib/rules.mjs';
+import { RULES, QUALITY_RULES, HOTSPOT_PATH, COMMENT, entropy } from './lib/rules.mjs';
 import { structure, duplicates, behavior } from './lib/metrics.mjs';
 import { RULE_CWE } from './lib/taxonomy.mjs';
 import { listAllFiles, isDepFile, isTestPath as isTestDir, parseDepFile, purlOf, cyclonedx } from './lib/deps.mjs';
@@ -36,7 +36,6 @@ const scopeFile = path.join(dir, 'scope.json');
 if (!fs.existsSync(scopeFile)) fail('No scope yet. Run target.mjs first.', JSON_OUT);
 const scope = readJson(scopeFile);
 
-const COMMENT = /^\s*(\/\/|\/\*|\*(?!\*?\s*\w+\s*=)|#(?!include|define|if|!)|<!--|--\s|;;|')/;
 const SEV_RANK = Object.fromEntries(SEVERITIES.map((s, i) => [s, i]));
 const SIGNALS = /\b(req\.|request\.|params|session|cookie|password|token|jwt|auth|exec|spawn|eval|query\(|execute\(|innerHTML|redirect|upload|readFile|open\(|fetch\(|axios|subprocess|pickle|yaml\.load|crypto|hash|sign|verify|admin|role|permission)\b/gi;
 
@@ -339,17 +338,25 @@ w.push(`## 2. Confirm or dismiss every candidate`);
 w.push(``);
 w.push(`Each ID must end up in findings.json — in a finding's \`candidates\` list, or in \`dismissed\` with a one-line reason. build.mjs checks this.`);
 const QLEVEL = { critical: 'WILL BREAK', high: 'LIKELY BUG', medium: 'SHOULD FIX', low: 'REFACTOR', info: 'NITPICK' };
+const hintSeen = new Map();
 for (const kind of ['security', 'quality']) {
   const list = candidates.filter((c) => c.kind === kind);
   if (!list.length) continue;
   w.push(``, `### ${kind === 'security' ? '2a. Security' : '2b. Code quality'} — ${list.length}`);
   if (kind === 'quality') w.push(``, `Confirm only what a careful senior reviewer would actually comment on. Merge repeats into one finding; dismiss the rest in groups ("idiomatic here", "intended", "generated").`);
-  let lastFile = null;
-  for (const c of list) {
-  if (c.file !== lastFile) { w.push(``, `#### \`${c.file}\`${c.test ? '  _(test code)_' : ''}`, ``); lastFile = c.file; }
-  w.push(`- **${c.id}** · ${kind === 'quality' ? QLEVEL[c.severity] : c.severity.toUpperCase()} · ${c.title}${c.cwe ? ` (${c.cwe})` : ''} · L${c.line}${c.endLine && c.endLine !== c.line ? `-${c.endLine}` : ''}`);
-  w.push(`  \`${c.code.replace(/`/g, 'ˋ')}\``);
-  w.push(`  Check: ${c.hint}`);
+  // One heading per file (in order of its worst hit), and each rule's hint printed once:
+  // repeats point back to the first, which keeps the worksheet short to read.
+  const byFile = new Map();
+  for (const c of list) (byFile.get(c.file) || byFile.set(c.file, []).get(c.file)).push(c);
+  for (const [file, items] of byFile) {
+    w.push(``, `#### \`${file}\`${items[0].test ? '  _(test code)_' : ''}`, ``);
+    for (const c of items) {
+      w.push(`- **${c.id}** · ${kind === 'quality' ? QLEVEL[c.severity] : c.severity.toUpperCase()} · ${c.title}${c.cwe ? ` (${c.cwe})` : ''} · L${c.line}${c.endLine && c.endLine !== c.line ? `-${c.endLine}` : ''}`);
+      w.push(`  \`${c.code.replace(/`/g, 'ˋ')}\``);
+      const key = `${c.rule}\u0000${c.hint}`;
+      if (hintSeen.has(key)) w.push(`  Check: as ${hintSeen.get(key)}`);
+      else { hintSeen.set(key, c.id); w.push(`  Check: ${c.hint}`); }
+    }
   }
 }
 if (!candidates.length) w.push(``, `_No rule matched. Rely on the manual read in step 1._`);

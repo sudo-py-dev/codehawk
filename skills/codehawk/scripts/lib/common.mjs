@@ -48,6 +48,9 @@ export const kindOf = (category) => (QUALITY_CATEGORIES[category] ? 'quality' : 
 // What each severity means on the quality track (reviewer-style levels).
 export const QUALITY_LEVEL = { critical: 'Will break', high: 'Likely bug', medium: 'Should fix', low: 'Refactor suggestion', info: 'Nitpick' };
 
+// Something a reader can check: a file:line, a line number, or a test.
+export const EVIDENCE = /[\w./-]+\.\w+:\d+|\bline \d+|\btests?\b|\bspec\b/i;
+
 export function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i++) {

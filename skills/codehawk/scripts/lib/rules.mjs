@@ -467,6 +467,9 @@ export const QUALITY_RULES = [
 export const HOTSPOT_PATH = /(auth|login|logout|session|passw|token|jwt|oauth|saml|sso|permission|rbac|acl|role|admin|middleware|guard|policy|crypto|secret|key|payment|billing|checkout|webhook|upload|download|file|export|import|proxy|redirect|callback|graphql|api\/|routes?|controllers?|handlers?|views?\.py|serializ|deserializ|exec|shell|command|sql|query|db|database|sanitiz|validat|csrf|cors|security|\.github\/workflows|Dockerfile|nginx|settings\.py|config)/i;
 
 /** Shannon entropy in bits/char, used to tell real-looking secrets from words. */
+// Lines that are comments: most rules skip them (rules with `comments: true` don't).
+export const COMMENT = /^\s*(\/\/|\/\*|\*(?!\*?\s*\w+\s*=)|#(?!include|define|if|!)|<!--|--\s|;;|')/;
+
 export function entropy(s) {
   const f = {};
   for (const c of s) f[c] = (f[c] || 0) + 1;

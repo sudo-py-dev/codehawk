@@ -7,6 +7,7 @@
 //                          [--range <a>..<b>] [--base <branch>] [--working] [--json]
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import {
   parseArgs, git, tryGit, trySh, isGitRepo, outDir, writeJson, shouldSkip, isBinaryPath, langOf, shortSha, fail,
 } from './lib/common.mjs';
@@ -201,6 +202,7 @@ scope.remote = inGit ? (tryGit(root, 'remote', 'get-url', 'origin') || '').trim(
 scope.head = head;
 scope.trust = assessTrust();
 scope.generatedAt = new Date().toISOString();
+scope.scanId = crypto.randomUUID(); // ties resolutions.json to this one scan
 scope.skipped = skipped;
 scope.skippedSample = skippedPaths.slice(0, 50);
 

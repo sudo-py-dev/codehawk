@@ -127,6 +127,8 @@ The scripts handle the mechanical work and Claude handles the judgment.
 3. **Review.** Claude reads the code on both tracks. It traces each hit to confirm or dismiss it, runs a regression pass on everything the change replaced, looks for what patterns can't catch, and writes the walkthrough.
 4. **Build.** `build.mjs` checks that the review is complete (every hit accounted for, every relevant file read, every line real), then writes the report, the PR comment and the SARIF file.
 5. **Fix.** `fix.mjs` plans the patches, shows them to you, and applies only what you approve.
+6. **Resolve.** After each fix, Claude ticks a four-step checklist for the finding: *code changed* and *problem gone* are checked automatically, while *fixed everywhere* and *no regression* need Claude to cite a `file:line` or test. A fix counts as verified only at 4/4, and the open report ticks the boxes live. Scripts do the mechanical checks (including searching the whole repo for the same bug), so Claude only spends effort on judgement.
+7. **Close the loop.** One `fix.mjs check` at the end re-verifies every fix, catches reverted ones, and flags new issues the changes introduced. The report's board shows *Fixed & verified*, *Need attention* and *Not fixed yet*.
 
 ## Safe by design
 
@@ -149,7 +151,8 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 1. **Plan.** Every change is shown as a diff before anything is edited. Fixes whose code has moved since the scan, that overlap another fix, or that need hand-writing are flagged.
 2. **Approve.** You choose which fixes to apply. Applying needs a one-time token tied to the exact plan you saw, and Claude Code asks for its own permission too.
 3. **Apply.** Changes go into your working tree, all or nothing, and only where the original code still matches.
-4. **Stop.** CodeHawk never commits, pushes, opens PRs or merges. Each of those needs its own request from you, and merging is always left to a person.
+4. **Track.** Each fix is marked resolved and goes through a four-step checklist, each step backed by an automatic check or a cited line or test. Only `.codehawk/` is touched for this, never your code.
+5. **Stop.** CodeHawk never commits, pushes, opens PRs or merges. Each of those needs its own request from you, and merging is always left to a person.
 
 > **No AI review is a guarantee.** For code you don't trust, keep shell commands on manual approval, ideally work in a container or throwaway VM, don't install or run the project, and have a person review anything security-critical. A clean report means *nothing was found*, not *safe*.
 
@@ -165,7 +168,8 @@ Public repos, forks and other people's PRs are untrusted. Anyone can add a comme
 - **Clickable breakdowns.** Filter by severity, category or riskiest file.
 - **Each finding** shows the highlighted code, its impact, a concrete attack scenario and the fix as a diff.
 - **Queue fix** collects fixes into a single `/codehawk:fix …` command. **Copy fix prompt** hands one finding to Claude with full context.
-- **Triage.** Mark findings Open, False positive or Accepted, then view Open, All or Triaged. This is saved in your browser only.
+- **Resolution status, live.** Keep the report open while Claude fixes things: each finding turns green and slides into **Resolved** as soon as it's fixed, no reload needed. In the Claude desktop app the report is served from a private local server (`serve.mjs`: 127.0.0.1 only, secret URL, read-only, stops when idle), so updates appear instantly in the preview pane. Each one shows its fix checklist (code changed, problem gone, fixed everywhere, no regression) with the evidence for every box, and the list shows *Verified* or how many checks are left (*2/4*). The header shows progress and the grades you'd get once the fixes land, and the PR comment and SARIF leave resolved findings out.
+- **Triage.** Mark findings Open, False positive or Accepted, then view Open, Resolved, Triaged or All. Triage marks are saved in your browser only.
 - **Checked and cleared.** Lists every dismissed hit with its reason, so you can see the review actually happened.
 - **Comfortable to use.** Dark and light themes, keyboard shortcuts (`j` / `k`, `/`, `1`–`5`, `f`, `t`), deep links, a mobile layout, reduced motion and print styles.
 - **Export.** Copy the PR comment, or download SARIF or JSON.
@@ -178,6 +182,7 @@ Outputs go to `.codehawk/` in the scanned repo, which ignores itself in git:
 | `summary.md` | PR comment with collapsible findings and `diff` fix blocks |
 | `report.sarif` | Upload to GitHub code scanning or open in your IDE. Includes CWE and OWASP taxonomies |
 | `sbom.cdx.json` | CycloneDX 1.5 SBOM: every pinned dependency and its known vulnerabilities |
+| `resolutions.json` | Which findings were fixed, how, and whether they were verified (for this scan only). `live.js` carries the same to the open report |
 
 See [`docs/example/`](docs/example/) for a full review of the deliberately vulnerable app in `tests/fixtures/vuln-app`, and [`docs/index.html`](docs/index.html) for the project's landing page.
 
@@ -192,7 +197,7 @@ npm test
 commands/              /codehawk:pr, :commit, :branch, :repo, :quality, :fix
 skills/codehawk/
   SKILL.md             the review procedure Claude follows
-  scripts/             target · scan · show · build · fix (Node, no dependencies)
+  scripts/             target · scan · show · build · fix · serve (Node, no dependencies)
   scripts/lib/rules.mjs  the rule pack
   scripts/lib/deps.mjs   lockfile parsers and the SBOM writer
   scripts/lib/osv.mjs    OSV.dev lookup and CVSS scoring

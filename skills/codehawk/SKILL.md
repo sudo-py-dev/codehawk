@@ -7,7 +7,12 @@ allowed-tools:
   - Bash(node ${CLAUDE_SKILL_DIR}/scripts/scan.mjs *)
   - Bash(node ${CLAUDE_SKILL_DIR}/scripts/build.mjs *)
   - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs plan *)
+  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs resolve *)
+  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs reopen *)
+  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs status *)
+  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs check *)
   - Bash(node ${CLAUDE_SKILL_DIR}/scripts/show.mjs *)
+  - Bash(node ${CLAUDE_SKILL_DIR}/scripts/serve.mjs *)
 ---
 
 # CodeHawk
@@ -83,7 +88,7 @@ Read [references/review-guide.md](references/review-guide.md) once per session. 
 
 1. **Read every file in the read list.** For diffs, read the changed hunks *and* enough surrounding code (callers, the route that reaches it, the middleware in front of it). Use `node ${CLAUDE_SKILL_DIR}/scripts/show.mjs <root> <path>` (with `--from`/`--to` for a range) so you read the version that was scanned, and `show.mjs <root> --diff <path>` for the change itself.
 2. **Hunt beyond the rules:** missing authorization/ownership checks (IDOR), auth bypass paths, business-logic flaws, race conditions, trust of client-side values, unsafe defaults, missing rate limits on costly endpoints, unbounded work driven by input (DoS), secrets in odd places, and dangerous changes to CI, Dockerfiles and dependencies.
-3. **Triage every candidate.** Trace the data from source to sink. Confirm it (as a finding) or dismiss it with a concrete reason. Group dismissals that share a reason. Set the real severity from the actual impact.
+3. **Triage every candidate.** Trace the data from source to sink. Confirm it (as a finding) or dismiss it with a concrete reason that points to the line or test proving it safe. Group dismissals that share a reason. Set the real severity from the actual impact.
 4. **Do the regression pass (change scans).** For every file in worksheet section 1c, compare old and new code: what inputs did the replaced lines handle, and does the new code still handle each? Check sibling code paths got the same change, limits are checked before the work, format parsers follow the spec's stateful rules, and narrowed allow-lists still admit legitimate inputs. Report regressions as `bug` findings with a concrete before/after input. The structural hints `limit-after-alloc`, `parser-skip` and `allowlist-change` point at likely spots; they are prompts to think, not verdicts.
 5. **Don't pad.** One real high beats ten speculative lows. Merge duplicates. Test code and fixtures are usually dismissals unless they ship or leak a real secret.
 
@@ -103,7 +108,10 @@ Schema and example: [references/findings-schema.md](references/findings-schema.m
 node ${CLAUDE_SKILL_DIR}/scripts/build.mjs <root>
 ```
 
-It refuses to build until every candidate is confirmed or dismissed and every finding points at a real line. Fix what it reports and rebuild. (`--partial` only if the user asked for a quick pass; say so.) **Always show the user the report as soon as it builds — every scan, every scope.** build.mjs opens `.codehawk/report.html` in the default browser by itself (it prints `OPENED`). If you're in an app with a browser/preview pane (e.g. the Claude desktop app), also open the `file://` path from the `REPORT` line there so the user sees it beside the chat; pass `--no-open` in that case to avoid a second window. If neither happened (headless/SSH), give the user the full `file://` path to open.
+It refuses to build until every candidate is confirmed or dismissed and every finding points at a real line. Fix what it reports and rebuild. (`--partial` only if the user asked for a quick pass; say so.) **Always show the user the report as soon as it builds — every scan, every scope.** build.mjs opens `.codehawk/report.html` in the default browser by itself (it prints `OPENED`).
+
+- **In an app with a browser/preview pane** (e.g. the Claude desktop app), build with `--no-open`, then run `node ${CLAUDE_SKILL_DIR}/scripts/serve.mjs <root>` and open the `URL` it prints in the pane. Preview panes can't run `file://` pages, so the served URL is what makes the report interactive there and lets fixes appear the instant they're marked. It returns at once (the server runs detached), listens on 127.0.0.1 only behind a random secret in the URL, is read-only, and stops by itself after 20 idle minutes. Running it again reuses the same server and URL; after a rebuild just reload the page. `serve.mjs <root> --stop` stops it.
+- **Headless/SSH**, where nothing opened: give the user the full `file://` path. Don't start the server there; it isn't reachable from their browser.
 
 ## 6. Report back
 
@@ -113,17 +121,10 @@ Then **ask** whether to apply fixes — don't start editing on your own. In the 
 
 ## Applying fixes (always with permission)
 
-Only when the user asks (e.g. `/codehawk:fix SEC-001 SEC-003`, "fix the critical ones", "apply all").
-
-1. **Plan — changes nothing:** `node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs plan <root> SEC-001 SEC-003` (or `--all`). It prints every patch as a diff, marks each `ready`, `drifted` (code changed since the scan), `conflict` or `manual` (no ready patch), warns if the checkout differs from what was scanned or has uncommitted work, and prints an approval **token**.
-2. **Ask.** Show the user the plan: one line per fix plus the diffs, and the warnings. Ask them which to apply (use AskUserQuestion with multi-select where available). Do not treat the original request as approval of patches they haven't seen. Wait for a clear yes.
-3. **Apply only what was approved:** if they approved a subset, re-run `plan` with just those ids, then `node ${CLAUDE_SKILL_DIR}/scripts/fix.mjs apply <root> --token <token>`. This isn't pre-approved, so Claude Code will also ask them. It applies all-or-nothing, only where the original code still matches, and never commits.
-4. **Manual / drifted fixes:** write the change yourself, show the exact diff, and get a yes **before each edit**.
-5. **Verify, including regressions:** `target.mjs <root> --working` + `scan.mjs` to confirm the issue is gone, then review your own patch like someone else's PR: run the regression pass on it (what did the replaced code handle that the fix might drop? does the sibling path need the same fix?). A fix that breaks a legitimate input is a new bug; say so before the user commits. Offer to run the project's tests **only for trusted code the user owns**, and only after asking.
-6. **Stop there.** Summarize what changed (`git diff --stat`). Committing, pushing, opening a PR or **merging** each need their own explicit request. Never merge a PR yourself. For someone else's PR, suggest posting the fixes as review suggestions instead of pushing to their branch, and post nothing without approval.
+Only when the user asks (e.g. `/codehawk:fix SEC-001 SEC-003`, "fix the critical ones", "apply all"). Read [references/fix-loop.md](references/fix-loop.md) first and follow it: plan → ask → apply → check your fix → `fix.mjs resolve` after each fix → `fix.mjs check` once at the end. Never edit without approval; never commit, push or merge.
 
 ## Notes
 
 - `.codehawk/` contains its own `.gitignore`, so outputs aren't committed by accident.
 - Rerunning `target.mjs` resets the candidates; start findings.json fresh for a new scope.
-- Report keys: `j`/`k` move, `/` search, `1`–`5` severity, `f` queue fix, `t` theme. Triage marks and the fix queue are stored in the viewer's browser only.
+- Report keys: `j`/`k` move, `/` search, `1`–`5` severity, `f` queue fix, `t` theme. Triage marks and the fix queue are stored in the viewer's browser only; resolution status lives in `.codehawk/resolutions.json`, belongs to that one scan, and survives rebuilds of it. A new scan (`target.mjs`) starts with every finding open again, and an open report offers to reload when a new scan is built.
