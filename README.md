@@ -51,7 +51,14 @@ Requires Node 18+ and git. The GitHub CLI (`gh`) is optional. It's used for PR d
 
 Dependency versions from your lockfiles are checked against [OSV.dev](https://osv.dev) for known CVEs. Only package names, ecosystems and versions are sent, never code. Add `--offline` (or say "offline") to skip it; the report then says CVEs weren't checked.
 
-To update later, run `claude plugin marketplace update codehawk`, then start a new session.
+To update later, refresh the marketplace and then update the plugin itself (the first command alone only fetches the new version list):
+
+```bash
+claude plugin marketplace update codehawk
+claude plugin update codehawk@codehawk
+```
+
+Then restart Claude Code or start a new session.
 
 > **Coming from PatchHound?** CodeHawk is the same plugin under a new name. Remove the old one with `claude plugin uninstall patchhound@patchhound` and `claude plugin marketplace remove patchhound`, then install as above. Commands are now `/codehawk:*`, output goes to `.codehawk/`, and rule IDs in SARIF start with `codehawk/`. Old `.patchhound/` folders can be deleted.
 
