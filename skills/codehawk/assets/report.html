@@ -595,6 +595,83 @@ footer { margin-top: var(--s-10); padding-top: var(--s-5); border-top: 1px solid
   .actions .btn:not(.icon) { flex: 1; justify-content: center; }
   .tri { width: 100%; } .tri button { flex: 1; }
 }
+
+/* ═════════════ Calm layer: warm neutrals, one quiet accent, no glow or pulsing ═════════════ */
+:root {
+  --font: "Inter var", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bg: #15171b; --surface: #1c1f24; --surface-2: #22262c; --surface-3: #2b3037;
+  --border: #2a2e35; --border-strong: #363b43;
+  --text: #eceae6; --text-2: #c2c0bb; --muted: #8d8c88;
+  --primary: #8b85e8; --primary-2: #b1adf2; --on-primary: #16151f; --focus: #b1adf2;
+  --code-bg: #181a1e;
+  --sev-critical: #ef6f6c; --sev-high: #ee9b5a; --sev-medium: #dcbc5c; --sev-low: #6fb3dc; --sev-info: #95938e;
+  --ok: #5cbf8e;
+  --brand-grad: var(--primary);
+  --shadow: none;
+}
+:root[data-theme="light"] {
+  --bg: #f7f6f3; --surface: #ffffff; --surface-2: #f3f2ee; --surface-3: #e8e6e1;
+  --border: #e6e3dd; --border-strong: #d6d2ca;
+  --text: #1f1f1d; --text-2: #4a4945; --muted: #78766f;
+  --primary: #5b55c9; --primary-2: #4a44b5; --on-primary: #ffffff; --focus: #5b55c9;
+  --code-bg: #faf9f7;
+  --sev-critical: #c9403d; --sev-high: #c46a1d; --sev-medium: #9c7a10; --sev-low: #2a7fae; --sev-info: #78766f;
+  --ok: #2e8a5e;
+  --shadow: 0 1px 2px #2a241a0a;
+}
+body { font-size: 15px; line-height: 1.6; letter-spacing: -.003em; }
+body::before { display: none; }
+.top { backdrop-filter: none; background: var(--bg); }
+.brand .logo { filter: none; }
+
+/* buttons and accents: solid, flat, no glow */
+.btn.primary, .btn.primary:hover { background: var(--primary); color: var(--on-primary); box-shadow: none; filter: none; transform: none; }
+.btn.primary:hover { background: var(--primary-2); }
+.tray .cnt { background: var(--primary); }
+.verdict .dot, .sev-badge.critical .d { animation: none; }
+.verdict { font-weight: 600; border: 0; }
+
+/* hero: generous space, grade and label stacked, never overlapping */
+.hero { padding: 36px; gap: 40px; grid-template-columns: 176px minmax(0, 1fr) 340px; }
+.grades { gap: 18px; }
+.gfig { margin: 0; display: grid; justify-items: center; gap: 10px; }
+.ring { width: 152px; height: 152px; }
+.ring .track { stroke: var(--surface-3); }
+.ring .bar { filter: none; }
+.ring .inner > div { display: grid; justify-items: center; gap: 6px; }
+.grade { font-size: 54px; font-weight: 700; letter-spacing: -.03em; }
+.score { margin: 0; font-size: 13px; color: var(--muted); }
+.ring-cap { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-2); }
+.qgrade { width: 176px; padding: 10px 12px; border-radius: var(--r); background: transparent; }
+.qgrade .l { font-size: 11px; letter-spacing: .05em; color: var(--text-2); }
+.qgrade.off .g { color: var(--muted); background: var(--surface-2); }
+.qgrade.off .l { color: var(--muted); }
+.qgrade .l { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 600; }
+.qgrade.off .b { height: auto; background: none; overflow: visible; }
+.qgrade.off .b i { display: none; }
+.qgrade.off .b::after { content: "Not run"; font-size: 12px; color: var(--muted); }
+.hero h1 { font-weight: 650; }
+.hero .summary { color: var(--text-2); line-height: 1.65; }
+.sev-tile { background: transparent; }
+.sev-tile:hover, .item:hover { transform: none; }
+.sev-tile .n { font-weight: 650; }
+
+/* panels and lists: quieter headings, sentence case */
+.panel h2, .d-section h4, .std-sub, .walk th, .adv th { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.panel h2 svg, .d-section h4 svg { color: var(--muted); }
+.item[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.item .t { font-weight: 550; }
+.detail h3 { font-weight: 650; }
+.d-section p { line-height: 1.7; }
+.callout { background: var(--surface-2); border-color: var(--border); border-inline-start: 3px solid var(--sev-critical); }
+.sev-badge { letter-spacing: .03em; }
+
+@media (max-width: 1080px) { .hero { grid-template-columns: 176px minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .hero { grid-template-columns: 1fr; padding: 22px; gap: 22px; }
+  .ring { width: 120px; height: 120px; }
+  .grade { font-size: 42px; }
+}
 </style>
 </head>
 <body>
@@ -650,11 +727,14 @@ footer { margin-top: var(--s-10); padding-top: var(--s-5); border-top: 1px solid
   <div id="trust-root"></div>
   <section class="hero reveal" aria-labelledby="hero-title">
     <div class="grades">
-      <div class="ring" role="img" id="ring">
-        <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/><circle class="bar" id="ring-bar" cx="60" cy="60" r="52" fill="none" stroke-width="10"/></svg>
-        <div class="inner"><div><div class="grade" id="grade">–</div><div class="score num" id="score"></div><div class="ring-cap">Security</div></div></div>
-      </div>
-      <div class="qgrade" id="qgrade" role="img"><span class="g" id="qg">–</span><span class="l">Code quality</span><span class="b"><i></i></span></div>
+      <figure class="gfig">
+        <div class="ring" role="img" id="ring">
+          <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="53" fill="none" stroke-width="7"/><circle class="bar" id="ring-bar" cx="60" cy="60" r="53" fill="none" stroke-width="7"/></svg>
+          <div class="inner"><div><div class="grade" id="grade">–</div><div class="score num" id="score"></div></div></div>
+        </div>
+        <figcaption class="ring-cap" id="ring-cap">Security</figcaption>
+      </figure>
+      <div class="qgrade" id="qgrade" role="img"><span class="g" id="qg">–</span><span class="l" id="qg-label">Code quality</span><span class="b"><i></i></span></div>
     </div>
     <div>
       <span class="verdict" id="verdict"><span class="dot"></span><span id="verdict-text"></span></span>
@@ -791,25 +871,37 @@ function hero() {
   const ref = D.meta.ref || D.meta.head;
   if (ref) { const c = $('#ref-chip'); c.hidden = false; c.textContent = ref.slice(0, 7); c.title = ref; }
 
+  // The big ring shows the track that actually ran; on a quality-only scan that is code quality,
+  // and the small card says security was not run instead of showing a meaningless 100/100.
+  const qualityOnly = D.focus === 'quality';
+  const big = qualityOnly ? { name: 'Code quality', grade: D.qualityGrade || 'A', score: D.qualityScore ?? 100 } : { name: 'Security', grade: D.grade, score: D.score };
   const ring = $('#ring');
-  ring.style.setProperty('--grade', GRADE_COLOR[D.grade]);
-  ring.setAttribute('aria-label', `Security grade ${D.grade}, score ${D.score} out of 100`);
-  const C = 2 * Math.PI * 52;
+  ring.style.setProperty('--grade', GRADE_COLOR[big.grade]);
+  ring.setAttribute('aria-label', `${big.name} grade ${big.grade}, score ${big.score} out of 100`);
+  $('#ring-cap').textContent = big.name;
+  const C = 2 * Math.PI * 53;
   const bar = $('#ring-bar');
   bar.style.strokeDasharray = C;
   bar.style.strokeDashoffset = C;
-  $('#grade').textContent = D.grade;
-  requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.strokeDashoffset = C * (1 - D.score / 100); }));
-  countUp($('#score'), D.score, (n) => `${n} / 100`, 1400);
+  $('#grade').textContent = big.grade;
+  requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.strokeDashoffset = C * (1 - big.score / 100); }));
+  countUp($('#score'), big.score, (n) => `${n} / 100`, 1400);
 
   const qg = $('#qgrade');
-  qg.style.setProperty('--qg', GRADE_COLOR[D.qualityGrade || 'A']);
-  qg.style.setProperty('--w', `${D.qualityScore ?? 100}%`);
-  qg.setAttribute('aria-label', `Code quality grade ${D.qualityGrade}, score ${D.qualityScore} out of 100`);
-  qg.title = `Code quality ${D.qualityScore}/100`;
-  $('#qg').textContent = D.qualityGrade || '–';
+  if (qualityOnly) {
+    qg.classList.add('off');
+    qg.setAttribute('aria-label', 'Security track was not run for this scan');
+    qg.title = 'Security track not run (quality-only scan)';
+    $('#qg').textContent = '–';
+    $('#qg-label').textContent = 'Security';
+  } else {
+    qg.style.setProperty('--qg', GRADE_COLOR[D.qualityGrade || 'A']);
+    qg.style.setProperty('--w', `${D.qualityScore ?? 100}%`);
+    qg.setAttribute('aria-label', `Code quality grade ${D.qualityGrade}, score ${D.qualityScore} out of 100`);
+    qg.title = `Code quality ${D.qualityScore}/100`;
+    $('#qg').textContent = D.qualityGrade || '–';
+  }
   if (D.focus === 'security') qg.hidden = true;
-  if (D.focus === 'quality') { $('.ring-cap').textContent = 'Security (not run)'; }
 
   const [vt, vc, glow] = VERDICT[D.verdict];
   const v = $('#verdict'); v.style.setProperty('--vc', vc); $('#verdict-text').textContent = vt;

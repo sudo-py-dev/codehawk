@@ -5,7 +5,9 @@
 //   .codehawk/summary.md    a PR-comment-ready summary
 // Validates the findings against the scope and the worksheet first.
 //
-//   node build.mjs <root> [--json] [--partial] [--open]
+//   node build.mjs <root> [--json] [--partial] [--no-open]
+// The report opens in the default browser after every build unless --no-open is given,
+// --json is used, or there is no display (CI, SSH without a desktop).
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -367,10 +369,15 @@ else {
   console.log(`SARIF    ${out.sarif}`);
   console.log(`COMMENT  ${out.summary}`);
 }
-if (args.open) {
+const headless = !!process.env.CI || (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY);
+if (!args['no-open'] && (args.open || (!JSON_OUT && !headless))) {
   const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
-  const a = [reportPath];
-  try { spawn(opener, a, { detached: true, stdio: 'ignore' }).unref(); } catch { /* headless */ }
+  try {
+    const child = spawn(opener, [reportPath], { detached: true, stdio: 'ignore' });
+    child.on('error', () => { /* no opener installed: the REPORT line above still has the path */ });
+    child.unref();
+    if (!JSON_OUT) console.log('OPENED   report in your default browser');
+  } catch { /* headless */ }
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
