@@ -1,0 +1,18 @@
+{
+  "name": "patchhound",
+  "owner": {
+    "name": "sudo-py-dev",
+    "url": "https://github.com/sudo-py-dev"
+  },
+  "metadata": {
+    "description": "PatchHound: security review of PRs, commits and whole repos for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "patchhound",
+      "source": "./",
+      "description": "Scan a PR, commit, branch or whole repo for security holes and unsafe code, with an interactive report and one-click fix prompts.",
+      "category": "security"
+    }
+  ]
+}

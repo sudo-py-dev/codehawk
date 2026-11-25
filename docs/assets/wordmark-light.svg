@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 72" width="360" height="72" role="img" aria-label="PatchHound">
+  <defs>
+    <linearGradient id="wm-bg-ligh" x1="6" y1="8" x2="58" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9b8cff"/><stop offset=".55" stop-color="#7b5cf0"/><stop offset="1" stop-color="#e2557f"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0 4)">
+    <rect width="64" height="64" rx="16" fill="url(#wm-bg-ligh)"/>
+    <path d="M32 10.5 49 16.6v13.1c0 10.6-7.1 19.3-17 23.4-9.9-4.1-17-12.8-17-23.4V16.6z" fill="#fff"/>
+    <g fill="url(#wm-bg-ligh)">
+      <path d="M32 33.2c3.9 0 8 3.6 8 7.1 0 2.4-1.9 3.3-4 3.3-1.7 0-2.5-.8-4-.8s-2.3.8-4 .8c-2.1 0-4-.9-4-3.3 0-3.5 4.1-7.1 8-7.1z"/>
+      <ellipse cx="24.6" cy="29.2" rx="2.5" ry="3.1" transform="rotate(-22 24.6 29.2)"/>
+      <ellipse cx="29.3" cy="24.9" rx="2.5" ry="3.2" transform="rotate(-6 29.3 24.9)"/>
+      <ellipse cx="34.7" cy="24.9" rx="2.5" ry="3.2" transform="rotate(6 34.7 24.9)"/>
+      <ellipse cx="39.4" cy="29.2" rx="2.5" ry="3.1" transform="rotate(22 39.4 29.2)"/>
+    </g>
+  </g>
+  <text x="82" y="49" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, sans-serif" font-weight="700" font-size="34" letter-spacing="-0.8" fill="#11131a">Patch<tspan fill="#7b5cf0">Hound</tspan></text>
+</svg>

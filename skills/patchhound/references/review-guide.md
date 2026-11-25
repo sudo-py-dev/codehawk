@@ -1,0 +1,60 @@
+# Review guide
+
+How to turn rule hits into a trustworthy review. Aim for what a senior AppSec engineer would flag in a code review: few, real, well-explained.
+
+## Trace, don't pattern-match
+
+For every candidate answer three questions before deciding:
+
+1. **Source** — where does the value come from? Request (params, query, body, headers, cookies, uploaded files), message queue, other service, DB row a user wrote, env/config, a constant.
+2. **Path** — what happens between source and sink? Type coercion (`parseInt`), allow-list, escaping, ORM parameter binding, schema validation (zod/pydantic/joi), auth middleware.
+3. **Sink** — what's the worst thing the sink does with a hostile value?
+
+Dismiss when the source is not attacker-influenced or the path neutralizes it. Write the reason down; it's shown in the report as "checked and cleared", which is what makes the review credible.
+
+## What the rules can't see (look for these deliberately)
+
+**Access control** — the most common serious bug in real apps.
+- Route/handler without the auth middleware its siblings have.
+- Fetch-by-id without an ownership/tenant check (`WHERE id = ?` but no `AND owner_id = ?`).
+- Role checks done on the client only, or on a value the client sends (`req.body.role`, `isAdmin` in a JWT that's not verified).
+- New admin/debug/internal endpoints exposed publicly; GraphQL resolvers missing field-level auth.
+
+**Logic**
+- Prices, quantities, discounts, user ids taken from the client.
+- Check-then-act races (balance checks, coupon redemption, file existence then open).
+- Password reset / email change / invite flows: token reuse, no expiry, token in URL logged, account takeover via unverified email.
+- Fail-open: `catch {}` that continues, `if (!user) next()`, default-allow switches.
+
+**Denial of service**
+- Work proportional to input with no cap: loops, allocations, recursion depth, regexes, image/PDF/zip processing, `JSON.parse` on huge bodies, pagination `limit` from the query without a max.
+- Expensive endpoints (search, export, LLM calls, email/SMS sending) with no rate limit → cost & availability.
+- Synchronous CPU-heavy work (bcrypt with huge cost, sync crypto, sync fs) in the request path of a single-threaded server.
+- Missing timeouts on outbound calls and on servers (slowloris).
+
+**Unsafe code**
+- `unsafe` blocks: are the stated invariants actually upheld? Lengths checked before `from_raw_parts`/`memcpy`?
+- Integer overflow feeding an allocation or index.
+- Use-after-free / double-free patterns in C/C++ diffs; signed/unsigned mixing in bounds checks.
+
+**Secrets**
+- Real vs fake: decode JWTs, check key prefixes (`sk_live_` vs `sk_test_`), entropy, whether the file ships.
+- Any real secret in git history is compromised even if deleted later — the fix is **rotate**.
+
+**CI / supply chain (for PRs especially)**
+- Workflow changes: `pull_request_target` + checkout of PR head, `${{ github.event.* }}` interpolated into `run:`, new secrets exposure, `permissions` widened.
+- New dependencies: typosquats (`reqeusts`, `lodahs`), install scripts, git/URL dependencies, unexpected new network calls.
+- Build scripts that download and execute.
+
+## Diff reviews
+
+- A diff can **remove** protection: deleted auth middleware, loosened validation, widened CORS, disabled CSRF, a `verify=False`. Look at what was removed (`git diff <base> <ref> -- <file>`), not just added lines.
+- A safe-looking change can make an old sink reachable (new route calling an old unsafe helper). Follow new call paths into unchanged code; report the issue at the sink, and say how the change exposed it.
+
+## Writing it up
+
+- Title: the vulnerability + where, ≤ 8 words ("SQL injection in product search").
+- Plain words first, jargon after: "the database runs whatever the visitor types (SQL injection)".
+- Exploit: one concrete request/input. Show it's real without being a weapon.
+- Fix: the minimal correct change, in the codebase's own style and libraries. If the right fix is architectural, say so in `fix` and give the local mitigation in `fixCode`.
+- Don't claim certainty you don't have — lower `confidence` instead of overstating.

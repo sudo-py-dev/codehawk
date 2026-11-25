@@ -1,0 +1,23 @@
+{
+  "name": "patchhound",
+  "version": "0.1.0",
+  "description": "PatchHound sniffs out vulnerabilities and patches them: scan a pull request, a single commit, a branch or the whole repo for vulnerabilities, insecure and unsafe code, denial-of-service risks and leaked secrets, then explore the results in a fast, self-contained interactive report with fixes applied only after you approve them, and built-in protection against prompt injection hidden in untrusted code.",
+  "author": {
+    "name": "sudo-py-dev",
+    "url": "https://github.com/sudo-py-dev"
+  },
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "prompt-injection",
+    "code-review",
+    "sast",
+    "pull-request",
+    "vulnerabilities",
+    "secrets",
+    "dos",
+    "report"
+  ],
+  "homepage": "https://github.com/sudo-py-dev/patchhound",
+  "repository": "https://github.com/sudo-py-dev/patchhound"
+}
