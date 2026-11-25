@@ -103,16 +103,17 @@ function serve() {
   const deny = (res, code, msg) => { res.writeHead(code, { ...HEAD, 'Content-Type': 'text/plain; charset=utf-8' }); res.end(msg + '\n'); };
 
   const server = http.createServer((req, res) => {
-    lastActive = Date.now();
     const host = String(req.headers.host || '').toLowerCase();
     if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return deny(res, 403, 'Forbidden host');
     if (req.headers['sec-fetch-site'] === 'cross-site') return deny(res, 403, 'Cross-site request refused');
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return deny(res, 403, 'Cross-origin request refused');
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.setHeader('Allow', 'GET, HEAD'); return deny(res, 405, 'Read-only'); }
-    const url = new URL(req.url, `http://${host}`);
+    let url;
+    try { url = new URL(req.url, `http://${host}`); } catch { return deny(res, 400, 'Invalid URL'); }
     const parts = url.pathname.split('/');
     const given = Buffer.from(parts[1] || '');
     if (parts.length !== 3 || given.length !== token.length || !crypto.timingSafeEqual(given, Buffer.from(token))) return deny(res, 404, 'Not found');
+    lastActive = Date.now();
     const name = parts[2];
     if (name === 'health') { res.writeHead(200, { ...HEAD, 'Content-Type': 'text/plain' }); return res.end(`ok ${process.pid}\n`); }
     if (name === 'report.html' || name === '') {
@@ -120,7 +121,7 @@ function serve() {
       let html;
       try { html = fs.readFileSync(report, 'utf8'); } catch { return deny(res, 404, 'No report yet'); }
       // Tell the page it can use the event stream instead of polling.
-      html = html.replace('<script id="codehawk-data"', '<script>window.__codehawkPush = true;</script>\n<script id="codehawk-data"');
+      if (watcher) html = html.replace('<script id="codehawk-data"', '<script>window.__codehawkPush = true;</script>\n<script id="codehawk-data"');
       res.writeHead(200, { ...HEAD, 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(req.method === 'HEAD' ? undefined : html);
     }
@@ -131,6 +132,7 @@ function serve() {
     }
     if (name === 'events') {
       res.writeHead(200, { ...HEAD, 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
+      if (req.method === 'HEAD') return res.end();
       res.write('retry: 2000\n\n');
       const m = liveMsg();
       if (m) push(res, m); // anything that changed between page load and connect

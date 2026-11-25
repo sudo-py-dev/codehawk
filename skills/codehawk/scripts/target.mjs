@@ -22,27 +22,31 @@ const inGit = isGitRepo(root);
 function parseDiff(text) {
   const files = [];
   let cur = null;
+  let inHunk = false;
   for (const line of text.split('\n')) {
     if (line.startsWith('diff --git ')) {
+      inHunk = false;
       cur = { path: null, oldPath: null, status: 'modified', changed: [], additions: 0, deletions: 0, binary: false };
       files.push(cur);
       const m = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
       if (m) { cur.oldPath = m[1]; cur.path = m[2]; }
     } else if (!cur) continue;
+    else if (inHunk && line.startsWith('+')) cur.additions++;
+    else if (inHunk && line.startsWith('-')) cur.deletions++;
     else if (line.startsWith('new file mode')) cur.status = 'added';
     else if (line.startsWith('deleted file mode')) cur.status = 'deleted';
     else if (line.startsWith('rename from ')) { cur.status = 'renamed'; cur.oldPath = line.slice(12); }
     else if (line.startsWith('rename to ')) cur.path = line.slice(10);
     else if (line.startsWith('Binary files')) cur.binary = true;
-    else if (line.startsWith('+++ ')) { if (line !== '+++ /dev/null') cur.path = line.slice(6); }
+    else if (line.startsWith('+++ ')) { if (line !== '+++ /dev/null') cur.path = line.slice(6).replace(/\t$/, ''); }
     else if (line.startsWith('@@')) {
       const m = line.match(/^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
       if (m) {
+        inHunk = true;
         const start = +m[2]; const count = m[3] === undefined ? 1 : +m[3];
         if (count > 0) cur.changed.push([start, start + count - 1]);
       }
-    } else if (line.startsWith('+') && !line.startsWith('+++')) cur.additions++;
-    else if (line.startsWith('-') && !line.startsWith('---')) cur.deletions++;
+    }
   }
   return files.filter((f) => f.path && !f.binary && f.status !== 'deleted');
 }

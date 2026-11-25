@@ -44,6 +44,21 @@ test('repo scan finds the planted issues', () => {
   assert.deepEqual(noCwe.map((c) => c.rule), []);
 });
 
+test('change scope preserves spaced paths and counts diff-like source lines', () => {
+  const dir = repo();
+  const name = 'notes with spaces.txt';
+  fs.writeFileSync(path.join(dir, name), '-- before\n');
+  git(dir, 'add', name);
+  git(dir, 'commit', '-qm', 'add notes');
+  fs.writeFileSync(path.join(dir, name), '++ after\n');
+  run('target.mjs', dir, '--working');
+  const { files } = JSON.parse(fs.readFileSync(path.join(dir, '.codehawk', 'scope.json'), 'utf8'));
+  assert.equal(files.length, 1);
+  assert.equal(files[0].path, name);
+  assert.equal(files[0].additions, 1);
+  assert.equal(files[0].deletions, 1);
+});
+
 test('commit scan only reports changed lines, read from the commit', () => {
   const dir = repo();
   fs.appendFileSync(path.join(dir, 'src/lib/auth.js'), '\nconst h = (password) => require("crypto").createHash("md5").update(password).digest("hex");\n');
@@ -363,6 +378,9 @@ test('serve.mjs: local-only, secret URL, read-only, pushes resolutions, reuses a
       const req = http.request({ host: '127.0.0.1', port: u.port, path: p, method, headers }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve({ status: res.statusCode, body: b, headers: res.headers })); });
       req.on('error', reject); req.end();
     });
+    const head = await get(`/${secret}/events`, { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(head.body, '');
     const page = await get(u.pathname);
     assert.equal(page.status, 200);
     assert.match(page.body, /window\.__codehawkPush = true/);
