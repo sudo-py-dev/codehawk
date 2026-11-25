@@ -48,7 +48,7 @@ function parseDiff(text) {
 
 function diffFiles(a, b) {
   const range = b ? [a, b] : [a];
-  return parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--find-renames', ...range));
+  return parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', ...range));
 }
 
 function resolve(ref) {
@@ -105,7 +105,7 @@ if (args.pr) {
   const parent = resolve(`${sha}^`);
   const files = parent
     ? diffFiles(parent, sha)
-    : parseDiff(git(root, 'diff-tree', '-p', '-U0', '--no-color', '--root', '-r', sha));
+    : parseDiff(git(root, 'diff-tree', '-p', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--root', '-r', sha));
   const s = subject(sha);
   scope = { mode: 'commit', ref: sha, base: parent, label: `Commit ${shortSha(sha)}${s.title ? ' · ' + s.title : ''}`, commit: { sha, ...s }, files };
 } else if (args.range) {
@@ -123,12 +123,12 @@ if (args.pr) {
   const mb = git(root, 'merge-base', B, 'HEAD').trim();
   const branch = (tryGit(root, 'branch', '--show-current') || '').trim() || shortSha(head);
   // Committed branch work plus whatever is uncommitted on top of it, read from disk.
-  const files = parseDiff(git(root, 'diff', '-U0', '--no-color', '--find-renames', mb));
+  const files = parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', mb));
   for (const p of (tryGit(root, 'ls-files', '--others', '--exclude-standard') || '').split('\n').filter(Boolean)) files.push({ path: p, status: 'added', changed: null, additions: 0, deletions: 0 });
   scope = { mode: 'branch', ref: null, base: mb, label: `${branch} vs ${baseName}`, files };
 } else if (args.working) {
   if (!inGit) fail('Scanning uncommitted changes needs a git repository.', JSON_OUT);
-  const files = parseDiff(git(root, 'diff', '-U0', '--no-color', '--find-renames', 'HEAD'));
+  const files = parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', 'HEAD'));
   const untracked = (tryGit(root, 'ls-files', '--others', '--exclude-standard') || '').split('\n').filter(Boolean);
   for (const p of untracked) files.push({ path: p, status: 'added', changed: null, additions: 0, deletions: 0 });
   scope = { mode: 'working', ref: null, base: head, label: 'Uncommitted changes', files };

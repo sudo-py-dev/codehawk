@@ -74,8 +74,11 @@ export function trySh(cmd, args, opts = {}) {
   try { return sh(cmd, args, opts); } catch { return null; }
 }
 
-export function git(root, ...args) { return sh('git', args, { cwd: root }); }
-export function tryGit(root, ...args) { return trySh('git', args, { cwd: root }); }
+// Scanned folders are untrusted: a copied (not cloned) .git/config can run commands via
+// fsmonitor or hooks. Diffs additionally pass --no-ext-diff --no-textconv (see target.mjs).
+const GIT_SAFE = ['--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'protocol.ext.allow=never'];
+export function git(root, ...args) { return sh('git', [...GIT_SAFE, ...args], { cwd: root }); }
+export function tryGit(root, ...args) { return trySh('git', [...GIT_SAFE, ...args], { cwd: root }); }
 
 export function isGitRepo(root) {
   return (tryGit(root, 'rev-parse', '--is-inside-work-tree') || '').trim() === 'true';
@@ -107,11 +110,12 @@ export function readAt(root, ref, rel) {
   if (blobCache.has(key)) return blobCache.get(key);
   let text = null;
   try {
-    if (ref) text = sh('git', ['show', `${ref}:${rel}`], { cwd: root });
+    if (ref) text = git(root, 'show', '--no-textconv', `${ref}:${rel}`);
     else {
       const p = path.join(root, rel);
-      const st = fs.statSync(p);
-      if (st.size <= MAX_BYTES) text = fs.readFileSync(p, 'utf8');
+      const real = fs.realpathSync(p), base = fs.realpathSync(root);
+      const st = fs.statSync(real);
+      if ((real === base || real.startsWith(base + path.sep)) && st.isFile() && st.size <= MAX_BYTES) text = fs.readFileSync(real, 'utf8');
     }
   } catch { text = null; }
   if (text && text.includes('\u0000')) text = null; // binary

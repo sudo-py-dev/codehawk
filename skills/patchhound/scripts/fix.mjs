@@ -97,16 +97,19 @@ if (cmd === 'plan') {
   const byFile = {};
   for (const i of ready) (byFile[i.file] ||= []).push(i);
   const applied = [];
+  const writes = [];
   for (const [file, list] of Object.entries(byFile)) {
     const p = path.resolve(root, file);
-    const text = fs.readFileSync(p, 'utf8');
-    const lines = text.split(/\r?\n/);
+    const lines = fs.readFileSync(p, 'utf8').split(/\r?\n/);
     for (const i of list.sort((a, b) => b.start - a.start)) { // bottom-up keeps line numbers valid
       lines.splice(i.start - 1, i.before.length, ...i.after);
       applied.push({ id: i.id, file, line: i.start });
     }
-    fs.writeFileSync(p, lines.join(list[0].eol));
+    writes.push([p, lines.join(list[0].eol)]);
   }
+  try { for (const [p, body] of writes) { const t = p + '.patchhound-tmp'; fs.writeFileSync(t, body); fs.chmodSync(t, fs.statSync(p).mode & 0o7777); } }
+  catch (e) { for (const [p] of writes) fs.rmSync(p + '.patchhound-tmp', { force: true }); fail(`Could not write patched files (nothing was changed): ${e.message}`, JSON_OUT); }
+  for (const [p] of writes) fs.renameSync(p + '.patchhound-tmp', p);
   fs.rmSync(planFile, { force: true }); // a token works once
   const skipped = plan.items.filter((i) => i.status !== 'ready').map((i) => ({ id: i.id, status: i.status, reason: i.reason }));
   if (JSON_OUT) process.stdout.write(JSON.stringify({ ok: true, applied, skipped }) + '\n');

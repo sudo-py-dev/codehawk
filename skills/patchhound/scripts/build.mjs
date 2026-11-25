@@ -193,7 +193,7 @@ writeJson(path.join(dir, 'report.json'), data);
 const template = fs.readFileSync(path.join(here, '..', 'assets', 'report.html'), 'utf8');
 const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/[\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16));
 const html = template
-  .replace('__PATCHHOUND_TITLE__', `PatchHound · ${escapeHtml(scope.label)}`)
+  .replace('__PATCHHOUND_TITLE__', () => `PatchHound · ${escapeHtml(scope.label)}`)
   .replace('"__PATCHHOUND_DATA__"', () => json);
 fs.writeFileSync(path.join(dir, 'report.html'), html);
 
@@ -284,8 +284,8 @@ else {
   console.log(`COMMENT  ${out.summary}`);
 }
 if (args.open) {
-  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
-  const a = process.platform === 'win32' ? ['/c', 'start', '', reportPath] : [reportPath];
+  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
+  const a = [reportPath];
   try { spawn(opener, a, { detached: true, stdio: 'ignore' }).unref(); } catch { /* headless */ }
 }
 
