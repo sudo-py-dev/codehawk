@@ -930,7 +930,7 @@ function toggleQueue(id) {
   saveQueue(); tray();
   toast(queue.has(id) ? `${id} queued for fixing` : `${id} removed from queue`);
 }
-function fixCommand() {
+function fixRequest() {
   const ids = D.findings.map((f) => f.id).filter((id) => queue.has(id));
   return `Use CodeHawk to plan fixes for ${ids.join(', ')} in the latest report. Show me the changes for approval before applying them.`;
 }
@@ -945,7 +945,7 @@ function tray() {
   if (qb) { const on = queue.has(qb.dataset.id); qb.classList.toggle('queued', on); qb.innerHTML = on ? `${icon('check')}Queued for fix` : `${icon('wrench')}Queue fix`; qb.setAttribute('aria-pressed', on); }
 }
 $('#tray-clear').onclick = () => { queue.clear(); saveQueue(); tray(); toast('Fix queue cleared'); };
-$('#tray-copy').onclick = () => copy(fixCommand(), 'Fix request copied');
+$('#tray-copy').onclick = () => copy(fixRequest(), 'Fix request copied');
 
 /* ── filter state (in the URL hash so it's shareable) ── */
 const state = { sev: new Set(), cat: null, file: null, q: '', status: 'open', sel: null, kind: 'all' };

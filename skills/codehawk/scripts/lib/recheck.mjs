@@ -4,7 +4,7 @@
 //
 //   clear     the rule no longer matches the fixed code
 //   flagged   it still matches the original line, or a line where the fix went
-//   unchecked no rule backs this finding (found in review, structural, dependency): Claude's own
+//   unchecked no rule backs this finding (found in review, structural, dependency): the reviewer's own
 //             re-read is the check
 import path from 'node:path';
 import fs from 'node:fs';
@@ -151,7 +151,7 @@ const codeKey = (file, code) => `${file}\u0000${String(code || '').trim().slice(
 
 // "Fixed everywhere", step 3, done by script for rule-backed findings: search the whole working
 // tree for the same rule and say what each other match is: another finding, a hit the review
-// dismissed, or something nobody has looked at. Claude only has to judge what's left.
+// dismissed, or something nobody has looked at. The reviewer only has to judge what's left.
 export function findSiblings(root, f, data) {
   const rules = rulesOf((f.checks || []).map((c) => c.rule));
   if (!rules.length || /^\(.*\)$/.test(f.file)) return null;

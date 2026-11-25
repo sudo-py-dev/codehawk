@@ -185,7 +185,7 @@ function resolveIds(ids, { method, note, evidence = null, siblings = null, regre
 
 // Step 3 by script where a rule backs the finding: every other match of the rule in the working
 // tree must be another finding that's resolved, or a hit the review dismissed. What's left is
-// listed so Claude looks at exactly those lines instead of searching.
+// listed so the reviewer looks at exactly those lines instead of searching.
 function autoSiblings(f) {
   const sib = findSiblings(root, f, data);
   if (!sib) return { ok: false, detail: 'not checked yet: other places with the same bug' };
@@ -244,7 +244,7 @@ const planToken = (items, scanId) => sha(JSON.stringify([scanId || null, items.f
 
 function assess(f) {
   if (f.resolution) return { id: f.id, status: 'resolved', reason: `Already resolved (${f.resolution.passed}/4 checked). Use \`fix.mjs reopen\` first if it needs another fix.` };
-  if (!f.fix) return { id: f.id, status: 'manual', reason: 'No ready-made patch: Claude must write this fix and show it to you first.' };
+  if (!f.fix) return { id: f.id, status: 'manual', reason: 'No ready-made patch: Prepare a proposed fix and show it for approval first.' };
   const text = fileLines(f.file);
   if (text == null) return { id: f.id, status: 'missing', reason: `${f.file} isn't in the working tree.` };
   const lines = text.split(/\r?\n/);
