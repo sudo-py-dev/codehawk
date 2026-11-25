@@ -114,6 +114,68 @@ export function structure(lines, lang, changed, { mode } = {}) {
   return out;
 }
 
+// ── Behavior checks: patterns behind real review misses ──
+// Not bugs by themselves; each one points the reviewer at a line where a change commonly breaks
+// behavior: size limits checked only after the data is built, parsers that skip a fixed amount of
+// input, and allow-/deny-lists that were edited.
+const ASSIGN = /^\s*(?:let\s+(?:mut\s+)?|const\s+|var\s+|val\s+|auto\s+|final\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?(?::=|=)(?!=)\s*(.+)$/;
+const BUILDS = /\b(join|concat|collect|format!?|to_string|to_owned|to_vec|repeat|clone|String::from|read_to_end|read_to_string|readAll|ReadAll|readFileSync|readFile|flatten\w*|serialize\w*|stringify|dumps|encode\w*|decompress\w*|inflate\w*|unzip|extract\w*|render\w*|Buffer\.(?:concat|from|alloc)|vec!|with_capacity|copy_from_slice)\b|\+\s*["'`]|["'`]\s*\+/;
+const LIMIT = /\b(?:[A-Z][A-Z0-9_]*(?:MAX|LIMIT|BUDGET|QUOTA|CAP|SIZE|BYTES)[A-Z0-9_]*|\w*(?:budget|quota|limit|remaining|allowance)\w*|max_\w+|\w+_max\b|maxSize|maxBytes|maxLength)\b/;
+const CHECK = /<=?|>=?|checked_add|checked_mul|ok_or|\bif\b|assert|ensure|throw|raise|Err\(|\bfilter\(|exceeds?/;
+const PARSE_CTX = /pars|lex|token|decod|escape|rtf|xml|json|csv|yaml|toml|protocol|frame|header|scan|read_|reader|tokeni[sz]/i;
+const SKIP_INPUT = /\.next\(\)\s*;|\.(?:skip|nth|advance_by|advance)\(\s*\d+\s*\)|\btake\(\s*\d+\s*\)\s*\.\s*for_each\(\s*drop\s*\)|\b(?:i|j|pos|idx|index|offset|cursor|ptr)\s*\+=\s*[2-9]\b|^\s*next\(\w+\)\s*$|\.read\(\s*\d+\s*\)\s*;?\s*$/;
+const LISTS = /(?:white|allow|safe|permit)[-_ ]?list|\ballowed_?\w*|\bALLOWED_\w+|(?:block|deny|black)[-_ ]?list|protocol_whitelist|\bpermitted_?\w*|allowedOrigins|CORS_\w*ORIGINS|trusted_?(?:hosts|origins|proxies)/i;
+const COMMENT_LINE = /^\s*(\/\/|#(?!\[)|\*|--|<!--)/;
+
+export function behavior(lines, lang, changed, { path: file = '' } = {}) {
+  const out = [];
+  const code = !/^(json|config|env|text|sql|html|yaml|gha|docker|terraform)$/.test(lang);
+  const statement = (k) => { // a statement may span lines (method chains)
+    let t = '';
+    for (let j = k; j < Math.min(lines.length, k + 5); j++) { t += ' ' + lines[j]; if (/[;{}]\s*$/.test(lines[j])) break; }
+    return t;
+  };
+  let lastSkip = -10, listsInFile = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (!overlaps(i + 1, i + 1, changed) || lines[i].length > 400) continue;
+    const raw = lines[i];
+    if (COMMENT_LINE.test(raw)) continue;
+    const s = stripCode(raw);
+
+    // 1. Data built first, size limit checked afterwards (the check can't stop the allocation).
+    const m = code && s.match(ASSIGN);
+    if (m && BUILDS.test(m[2]) && !LIMIT.test(m[2])) {
+      const v = new RegExp(`\\b${m[1]}\\b`);
+      for (let k = i + 1; k <= Math.min(lines.length - 1, i + 8); k++) {
+        const st = stripCode(statement(k));
+        if (v.test(st) && LIMIT.test(st) && CHECK.test(st)) {
+          out.push({ rule: 'limit-after-alloc', title: 'Size limit checked after the data is built', severity: 'medium', category: 'dos', cwe: 'CWE-770', line: i + 1, endLine: k + 1, code: raw.trim().slice(0, 220),
+            hint: `\`${m[1]}\` is fully built here and only compared with a limit on line ${k + 1}, so oversized input still costs the full allocation or copy before it is rejected. Check the remaining budget before building (or build through a helper that stops at the limit), and check whether sibling code paths (other formats, other callers) already do it that way.` });
+          break;
+        }
+      }
+    }
+
+    // 2. A parser that skips a fixed amount of input.
+    if (code && SKIP_INPUT.test(s) && i - lastSkip > 4) {
+      const ctx = file + '\n' + lines.slice(Math.max(0, i - 40), i).join('\n');
+      if (PARSE_CTX.test(ctx)) {
+        lastSkip = i;
+        out.push({ rule: 'parser-skip', title: 'Parser skips a fixed amount of input', severity: 'low', category: 'bug', cwe: 'CWE-1286', line: i + 1, endLine: i + 1, code: raw.trim().slice(0, 220),
+          hint: 'Is the count fixed by the format, or does earlier state change it (a length prefix, an escape width, a mode such as RTF \\ucN)? What happens at end of input, with the shortest and longest valid forms, and with input the old code accepted? Name one concrete input whose output changes.' });
+      }
+    }
+
+    // 3. An allow-/deny-list was edited: a behavior change in both directions.
+    if (LISTS.test(raw) && listsInFile < 3 && !/^\s*(r#*)?["'`]/.test(raw) && !/\b(assert\w*!?|expect|should|toEqual|toContain|assertEquals)\b/.test(raw)) {
+      listsInFile++;
+      out.push({ rule: 'allowlist-change', title: 'Allow-list or deny-list changed', severity: 'medium', category: 'bug', cwe: 'CWE-183', line: i + 1, endLine: i + 1, code: raw.trim().slice(0, 220),
+        hint: 'Changing what is allowed trades safety against features. List the legitimate inputs that passed before (protocols, schemes, formats, nested or encrypted variants, sub-resources the tool opens on its own) and confirm each still works; then confirm the dangerous ones are blocked. A list that is too narrow is a regression; too wide is a hole.' });
+    }
+  }
+  return out;
+}
+
 /**
  * Find blocks of >= `min` significant lines that appear in two places.
  * files: [{ path, lines, changed }] — returns candidates placed on the later occurrence.

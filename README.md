@@ -49,6 +49,8 @@ Or just ask: *"review this PR"*, *"is my last commit safe?"*, *"what in this rep
 
 Requires Node 18+ and git. The GitHub CLI (`gh`) is optional. It's used for PR details and for checking who owns a repo.
 
+Dependency versions from your lockfiles are checked against [OSV.dev](https://osv.dev) for known CVEs. Only package names, ecosystems and versions are sent, never code. Add `--offline` (or say "offline") to skip it; the report then says CVEs weren't checked.
+
 To update later, run `claude plugin marketplace update codehawk`, then start a new session.
 
 > **Coming from PatchHound?** CodeHawk is the same plugin under a new name. Remove the old one with `claude plugin uninstall patchhound@patchhound` and `claude plugin marketplace remove patchhound`, then install as above. Commands are now `/codehawk:*`, output goes to `.codehawk/`, and rule IDs in SARIF start with `codehawk/`. Old `.patchhound/` folders can be deleted.
@@ -57,7 +59,7 @@ To update later, run `claude plugin marketplace update codehawk`, then start a n
 
 <table>
 <tr>
-<td width="33%" valign="top"><img src="docs/assets/icon-scan.svg" width="28" alt=""><br><b>Checked, not just flagged</b><br>About 140 fast rules surface suspects. Claude then traces each one from user input to the dangerous code, and confirms or dismisses it with a reason you can read.</td>
+<td width="33%" valign="top"><img src="docs/assets/icon-scan.svg" width="28" alt=""><br><b>Checked, not just flagged</b><br>About 160 rules and structural checks surface suspects. Claude then traces each one from user input to the dangerous code, and confirms or dismisses it with a reason you can read.</td>
 <td width="33%" valign="top"><img src="docs/assets/icon-eye.svg" width="28" alt=""><br><b>Catches what rules can't</b><br>Missing ownership checks, auth bypasses, logic flaws, races, and protections a diff quietly removed.</td>
 <td width="33%" valign="top"><img src="docs/assets/icon-git.svg" width="28" alt=""><br><b>Two reviews in one</b><br>A <b>security</b> grade and a <b>code-quality</b> grade, plus a walkthrough of what the change does, file by file.</td>
 </tr>
@@ -83,8 +85,13 @@ To update later, run `claude plugin marketplace update codehawk`, then start a n
 | **Denial of service** | ReDoS, regex from input, unbounded bodies & allocations, missing timeouts, zip bombs, unpaginated queries |
 | **Unsafe code** | C buffer & format-string bugs, Rust / Go / C# `unsafe`, prototype pollution, `vm` sandboxes |
 | **Supply chain & CI** | GitHub Actions script injection, `pull_request_target`, unpinned actions, `curl \| sh`, install scripts |
-| **Config** | Debug mode, root containers, privileged pods, public buckets, `0.0.0.0/0` |
+| **Config & IaC** | Debug mode; Kubernetes privileged pods, host mounts, Docker socket, added capabilities, RBAC wildcards, committed Secrets; Terraform public buckets and IAM wildcards, encryption or logging off, IMDSv1, old TLS; Dockerfile root user, `ADD` from URLs |
+| **Known vulnerabilities** | Every pinned dependency in npm, yarn, pnpm, pip / Poetry / uv / Pipfile, Go, Cargo, Composer, Bundler, Maven / Gradle and NuGet lockfiles, looked up in OSV.dev: CVE and GHSA ids, CVSS 3.1 scores, the version that fixes them, and known-malicious packages |
 | **Prompt injection** | Instructions to AI reviewers, "don't review this", "already audited", fake system prompts, invisible Unicode tags, Trojan Source |
+
+### Standards
+
+Every finding carries a **CWE** (with its name). Security findings also map to the **OWASP Top 10 (2021)**, and anything in MITRE's **2024 CWE Top 25** is marked with its rank. The report has an OWASP / CWE Top 25 breakdown. SARIF output includes CWE and OWASP taxonomies, `external/cwe/cwe-NNN` tags and CVSS-based `security-severity`, so GitHub code scanning groups and ranks alerts correctly. A **CycloneDX 1.5 SBOM** of every dependency, with its known vulnerabilities, is written on every scan.
 
 ### Code quality
 
@@ -97,6 +104,7 @@ Severities follow a reviewer's scale: **Will break**, **Likely bug**, **Should f
 | **Performance** | N+1 queries and network calls in loops, sequential `await` in loops, blocking sync I/O in servers, JSON deep clones |
 | **Maintainability** | Long and complex functions, deep nesting, duplicated blocks across files, large files, hard-coded URLs, wildcard imports |
 | **Hygiene** | Debug prints, commented-out code, TODO/FIXME, `any` and `@ts-ignore`, `var`, loose `==`, shadowed built-ins |
+| **Regressions** | Change reviews compare the old code with the new: inputs the replaced code handled that the change drops, sibling code paths left without the same fix, size limits checked only after the data is built, parsers that skip a fixed amount of input, and allow-lists narrowed so legitimate inputs fail |
 | **Tests & docs** | New logic or bug fixes without tests, changed behavior without docs (found in review) |
 
 Nitpicks run on change reviews and are capped. Whole-repo audits skip them unless you ask.
@@ -108,8 +116,8 @@ Languages: JavaScript / TypeScript, Python, Go, Java / Kotlin, C#, PHP, Ruby, Ru
 The scripts handle the mechanical work and Claude handles the judgment.
 
 1. **Scope.** `target.mjs` works out exactly which files and lines to review (PR, commit, range, branch, working tree or whole repo) and how far the code can be trusted.
-2. **Rules.** `scan.mjs` runs the security and quality rules plus structural checks (function length, complexity, nesting, N+1, duplication) on those lines. It writes a worksheet of every hit to check and the files that deserve a full read.
-3. **Review.** Claude reads the code on both tracks. It traces each hit to confirm or dismiss it, looks for what patterns can't catch, and writes the walkthrough.
+2. **Rules.** `scan.mjs` runs the security and quality rules plus structural checks (function length, complexity, nesting, N+1, duplication, late size limits, parser skips, edited allow-lists) on those lines, and looks up pinned dependency versions in OSV.dev. It writes a worksheet of every hit to check, the files that deserve a full read, and for change reviews the files whose old code must be compared with the new.
+3. **Review.** Claude reads the code on both tracks. It traces each hit to confirm or dismiss it, runs a regression pass on everything the change replaced, looks for what patterns can't catch, and writes the walkthrough.
 4. **Build.** `build.mjs` checks that the review is complete (every hit accounted for, every relevant file read, every line real), then writes the report, the PR comment and the SARIF file.
 5. **Fix.** `fix.mjs` plans the patches, shows them to you, and applies only what you approve.
 
@@ -161,7 +169,8 @@ Outputs go to `.codehawk/` in the scanned repo, which ignores itself in git:
 |---|---|
 | `report.html` | Interactive report. Self-contained and works offline. |
 | `summary.md` | PR comment with collapsible findings and `diff` fix blocks |
-| `report.sarif` | Upload to GitHub code scanning or open in your IDE |
+| `report.sarif` | Upload to GitHub code scanning or open in your IDE. Includes CWE and OWASP taxonomies |
+| `sbom.cdx.json` | CycloneDX 1.5 SBOM: every pinned dependency and its known vulnerabilities |
 
 See [`docs/example/`](docs/example/) for a full review of the deliberately vulnerable app in `tests/fixtures/vuln-app`, and [`docs/index.html`](docs/index.html) for the project's landing page.
 
@@ -178,6 +187,9 @@ skills/codehawk/
   SKILL.md             the review procedure Claude follows
   scripts/             target · scan · show · build · fix (Node, no dependencies)
   scripts/lib/rules.mjs  the rule pack
+  scripts/lib/deps.mjs   lockfile parsers and the SBOM writer
+  scripts/lib/osv.mjs    OSV.dev lookup and CVSS scoring
+  scripts/lib/taxonomy.mjs  CWE names, OWASP Top 10 and CWE Top 25 mapping
   assets/report.html   report template
   references/          findings schema, security and quality review guides
 docs/                  landing page (index.html), example review, logo, icons, screenshots

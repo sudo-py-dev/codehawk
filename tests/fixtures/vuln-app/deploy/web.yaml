@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+        - name: web
+          image: vuln-app
+          securityContext:
+            capabilities:
+              add: ["SYS_ADMIN"]
+          volumeMounts:
+            - name: docker
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: docker
+          hostPath:
+            path: /var/run/docker.sock

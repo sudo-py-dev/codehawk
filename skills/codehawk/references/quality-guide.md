@@ -26,6 +26,15 @@ Quality findings use the same `severity` field, with these meanings (shown in th
 - Changed contracts: a function now returns a different shape, throws where it didn't, or a renamed field/route that callers (or old clients) still use.
 - Copy-paste mistakes: duplicated branch bodies, wrong variable in the second copy.
 
+**Regressions — what the change breaks (the most-missed class of bug).** On every change review:
+- **Read the old code, not just the new.** For each replaced or removed block (worksheet section 1c), list the inputs it handled, then check the new code still handles each one. A fix that closes one hole often drops a case the old code got right.
+- **Name the counterexample.** A regression finding states one concrete input and its result before and after: "for `{\rtf1\uc0\u945\'42}` the old parser returns `αB`, the new one `α`". If you can't name one, it's a question, not a finding.
+- **Sibling paths.** When the change fixes or hardens one path (DOCX but not ODF, one route but not its twin, Linux but not Windows), find the parallel code and check it got the same fix *in the same order*. Inconsistency between siblings is a strong signal.
+- **Limits before work.** A size, depth or copy budget must be checked *before* building, copying or allocating, against what's left of the budget, not after the data already exists. Watch nested and recursive input, where each level can spend the whole budget again.
+- **Formats and specs.** Parsers and writers for standard formats (RTF, ODF/OOXML, CSV, JSON, HTTP, URLs, archives, media containers) follow rules that depend on state: count prefixes, escape widths, modes such as RTF `\ucN`, encodings, optional fields. Check the change against the spec, not against the one sample in the test. If a docs tool is available, look the rule up.
+- **Tool flags and allow-lists.** When code restricts what an external tool or library may do (FFmpeg `-protocol_whitelist`, curl protocols, XML entity settings, CORS origins, file-type lists), list what legitimate inputs need: sub-resources the tool opens by itself (HLS segments over `crypto:`, `concat:`, `data:`), encrypted or nested variants. Too narrow is a regression; too wide is a hole.
+- **Tests that only prove the happy path.** If the new test covers the case the author had in mind, ask which input it doesn't cover, and suggest that test.
+
 **Error handling.**
 - Swallowed errors (`catch {}` / `except: pass`), errors logged but execution continues in a bad state, generic catch-alls hiding real failures.
 - Missing cleanup on failure paths (files, locks, transactions, timers, subscriptions).

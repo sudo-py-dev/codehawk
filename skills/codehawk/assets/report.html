@@ -310,6 +310,30 @@ details.cleared[open] > summary .chev { transform: rotate(180deg); }
 .reason li .mono { color: var(--text-2); }
 .notes { margin-top: 16px; }
 .notes ul { margin: 0; padding-inline-start: 18px; color: var(--text-2); }
+/* standards & dependencies */
+.standards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.owasp-row .lbl b { font-weight: 650; color: var(--text); margin-inline-end: 6px; font-variant-numeric: tabular-nums; }
+.owasp-row.zero { opacity: .45; }
+.owasp-row.zero .fill { display: none; }
+.std-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13.5px; }
+.std-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; }
+.std-list .rk { font: 12px var(--mono); color: var(--text-2); }
+.std-list .c { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.std-sub { margin: 16px 0 8px; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.dep-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--text-2); }
+.dep-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+.dep-warn { margin-top: 8px; font-size: 13px; color: var(--sev-high); }
+.muted-note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+.mchip.t25 { color: var(--sev-critical); border-color: color-mix(in oklab, var(--sev-critical) 35%, var(--border)); }
+.adv { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.adv th { text-align: start; font-size: 11.5px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 0 10px 6px 0; }
+.adv td { padding: 7px 10px 7px 0; border-top: 1px solid var(--border); vertical-align: top; }
+.adv td.mono { white-space: nowrap; }
+.adv .cv { font-variant-numeric: tabular-nums; font-weight: 650; }
+.adv .sum { color: var(--text-2); }
+.upgrade { margin-top: 10px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.d-section h4 .mono { text-transform: none; letter-spacing: 0; }
+@media (max-width: 860px) { .standards { grid-template-columns: 1fr; } .adv .sum { display: none; } }
 
 .clean { text-align: center; padding: 56px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); }
 .clean .big { width: 72px; height: 72px; margin: 0 auto 16px; border-radius: 20px; display: grid; place-items: center; color: var(--ok); background: color-mix(in oklab, var(--ok) 13%, transparent); animation: bob 3s ease-in-out infinite; }
@@ -650,6 +674,7 @@ footer { margin-top: var(--s-10); padding-top: var(--s-5); border-top: 1px solid
     <div class="panel reveal" style="animation-delay:.14s"><h2><svg class="i"><use href="#i-file"/></svg>Riskiest files</h2><div class="bars" id="file-bars"></div></div>
   </section>
 
+  <section class="standards" id="standards-root" hidden></section>
   <div id="walk-root"></div>
   <div class="section-head" id="findings"><h2>Findings</h2><span class="count" id="findings-count"></span></div>
   <div id="work-root"></div>
@@ -969,7 +994,7 @@ function visible() {
     if (state.sev.size && !state.sev.has(f.severity)) return false;
     if (state.cat && f.category !== state.cat) return false;
     if (state.file && f.file !== state.file) return false;
-    if (q && !`${f.id} ${f.title} ${f.file} ${f.cwe} ${f.categoryLabel} ${f.description}`.toLowerCase().includes(q)) return false;
+    if (q && !`${f.id} ${f.title} ${f.file} ${f.cwe} ${f.cweName || ''} ${f.owasp || ''} ${f.categoryLabel} ${f.description} ${f.dep ? `${f.dep.name} ${f.dep.advisories.map((a) => [a.id, ...a.aliases].join(' ')).join(' ')}` : ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
 }
@@ -1048,8 +1073,9 @@ function renderDetail() {
     <div class="meta-chips">
       <span class="mchip ${f.kind === 'quality' ? 'kind-q' : ''}">${f.kind === 'quality' ? 'Code quality' : 'Security'}</span>
       <span class="mchip">${esc(f.categoryLabel)}</span>
-      ${f.cwe ? `<span class="mchip"><a href="https://cwe.mitre.org/data/definitions/${cweNum}.html" target="_blank" rel="noopener">${esc(f.cwe)}</a></span>` : ''}
-      ${f.owasp ? `<span class="mchip">OWASP ${esc(f.owasp)}</span>` : ''}
+      ${f.cwe ? `<span class="mchip" title="${esc(f.cweName || f.cwe)}"><a href="https://cwe.mitre.org/data/definitions/${cweNum}.html" target="_blank" rel="noopener">${esc(f.cwe)}${f.cweName ? ` · ${esc(f.cweName)}` : ''}</a></span>` : ''}
+      ${f.top25 ? `<span class="mchip t25" title="Ranked #${f.top25} in MITRE's 2024 CWE Top 25 Most Dangerous Software Weaknesses">CWE Top 25 #${f.top25}</span>` : ''}
+      ${f.owasp ? `<span class="mchip" title="OWASP Top 10 (2021)"><a href="${esc(owaspUrl(f.owasp))}" target="_blank" rel="noopener">OWASP ${esc(f.owasp.slice(0, 3))} · ${esc(f.owaspName || '')}</a></span>` : ''}
       <span class="mchip" title="How sure the reviewer is that this is exploitable">Confidence <span class="conf">${[1, 2, 3].map((n) => `<i class="${n <= confN ? 'on' : ''}"></i>`).join('')}</span> ${esc(f.confidence)}</span>
       <span class="mchip">${icon(f.source === 'review' ? 'sparkle' : 'bolt')}${f.source === 'review' ? 'Found in review' : 'Rule + review'}</span>
     </div>
@@ -1069,6 +1095,7 @@ function renderDetail() {
     ${t ? `<div class="triage-note">${icon('check')}You marked this as ${t === 'fp' ? 'a false positive' : 'an accepted risk'}. Stored only in this browser.</div>` : ''}
 
     <div class="d-section"><h4>What's wrong</h4><p>${rich(f.description)}</p></div>
+    ${f.dep?.advisories?.length ? advisories(f.dep) : ''}
     ${f.snippet ? `<div class="d-section">${codeBlock(f)}</div>` : ''}
     ${(f.impact || f.exploit) ? `<div class="d-section two">
       ${f.impact ? `<div><h4>${icon('target')}${f.kind === 'quality' ? 'Why it matters' : 'Impact'}</h4><div class="callout"><p>${rich(f.impact)}</p></div></div>` : ''}
@@ -1101,6 +1128,57 @@ function renderDetail() {
   tray();
 }
 
+function owaspUrl(id) {
+  const name = (D.standards?.owasp || []).find((o) => o.id === id)?.name || '';
+  return `https://owasp.org/Top10/${id.replace(':', '_')}-${name.replace(/ /g, '_').replace('Server-Side_Request_Forgery', 'Server-Side_Request_Forgery_%28SSRF%29')}/`;
+}
+function advisories(d) {
+  const rows = d.advisories.map((a) => `<tr>
+    <td class="mono"><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener">${esc(a.cves[0] || a.id)}</a>${a.cves[0] && a.cves[0] !== a.id ? `<br><small class="muted">${esc(a.id)}</small>` : ''}</td>
+    <td><span class="sev-badge ${esc(a.severity)}" style="${sevVar(a.severity)}"><span class="d"></span>${esc(a.malicious ? 'malicious' : a.severity)}</span></td>
+    <td class="cv" title="${esc(a.cvss?.vector || '')}">${a.cvss?.score != null ? a.cvss.score.toFixed(1) : a.cvss ? 'v' + esc(a.cvss.version) : '–'}</td>
+    <td class="mono">${a.malicious ? '–' : a.fixed ? esc(a.fixed) : '<span class="muted">no fix yet</span>'}</td>
+    <td class="sum">${esc(a.summary || '')}</td></tr>`).join('');
+  return `<div class="d-section"><h4>${icon('shield')}Known vulnerabilities in <span class="mono">${esc(d.name)}@${esc(d.version)}</span>${d.dev ? ' <small class="muted">(dev dependency)</small>' : ''}</h4>
+    <table class="adv"><thead><tr><th>Advisory</th><th>Severity</th><th>CVSS</th><th>Fixed in</th><th>Summary</th></tr></thead><tbody>${rows}</tbody></table>
+    ${d.fixTo ? `<p class="upgrade">${icon('wrench')}Upgrade <span class="mono">${esc(d.name)}</span> to <b class="mono">${esc(d.fixTo)}</b> or later to clear every advisory above that has a fix.</p>` : ''}
+    <p class="muted-note">From OSV.dev · ${esc(d.ecosystem)}${d.purl ? ` · <span class="mono">${esc(d.purl)}</span>` : ''}</p></div>`;
+}
+function standards() {
+  const S = D.standards, dp = D.deps;
+  const hasOwasp = S && S.owasp.some((o) => o.count);
+  if (!hasOwasp && !S?.top25?.length && !(dp && dp.status !== 'skipped')) return;
+  const el = $('#standards-root');
+  el.hidden = false;
+  const maxO = Math.max(1, ...(S?.owasp || []).map((o) => o.count));
+  const owasp = (S?.owasp || []).map((o, i) => `
+    <button class="bar-row owasp-row ${o.count ? '' : 'zero'}" data-q="${esc(o.id)}" ${o.count ? '' : 'disabled'} title="${esc(o.id)} ${esc(o.name)}${o.count ? ' — click to filter' : ''}">
+      <span class="lbl"><b>${esc(o.id.slice(0, 3))}</b>${esc(o.name)}</span>
+      <span class="track"><span class="fill" style="width:${(o.count / maxO) * 100}%;animation-delay:${0.2 + i * 0.04}s"></span></span>
+      <span class="c">${o.count}</span>
+    </button>`).join('');
+  const t25 = S?.top25?.length
+    ? `<ul class="std-list">${S.top25.map((t) => `<li><span class="rk">#${t.rank}</span><span><a href="https://cwe.mitre.org/data/definitions/${t.cwe.replace(/\D/g, '')}.html" target="_blank" rel="noopener">${esc(t.cwe)}</a> ${esc(t.name || '')}</span><span class="c">${t.count}</span></li>`).join('')}</ul>`
+    : `<p class="muted-note">None of the findings fall in the 2024 CWE Top 25.</p>`;
+  let depHtml = '';
+  if (dp && dp.status !== 'skipped') {
+    const st = { ok: '', offline: 'Not checked for known vulnerabilities: the scan ran with --offline.', error: `The OSV.dev lookup failed (${dp.error || 'network error'}), so known vulnerabilities were not checked.`, none: 'No lockfiles found.', 'nothing-changed': 'This change does not touch any pinned dependency version.' }[dp.status] || '';
+    depHtml = `<div class="std-sub">Dependencies</div>
+      <div class="dep-stats"><span><b>${dp.packages || 0}</b> pinned in ${dp.lockfiles?.length || 0} lockfile${dp.lockfiles?.length === 1 ? '' : 's'}</span>${dp.status === 'ok' ? `<span><b>${dp.checked}</b> checked${dp.scope === 'changed' ? ' (changed)' : ''}</span><span><b>${dp.vulnerable}</b> vulnerable</span><span><b>${dp.advisories}</b> advisories</span>` : ''}</div>
+      ${st ? `<p class="${dp.status === 'offline' || dp.status === 'error' ? 'dep-warn' : 'muted-note'}">${esc(st)}</p>` : ''}
+      ${dp.vulnerable ? `<button class="btn sm" data-q="vulnerable-dependency" style="margin-top:10px">${icon('shield')}Show vulnerable dependencies</button>` : ''}
+      ${dp.sbom ? `<p class="muted-note">SBOM (CycloneDX 1.5): <span class="mono">${esc(dp.sbom)}</span></p>` : ''}`;
+  }
+  el.innerHTML = `
+    <div class="panel reveal"><h2>${icon('shield')}OWASP Top 10 (2021)</h2><div class="bars">${owasp}</div>${hasOwasp ? '' : '<p class="muted-note">No security findings to map.</p>'}</div>
+    <div class="panel reveal"><h2>${icon('target')}CWE Top 25 (2024)</h2>${t25}${depHtml}</div>`;
+  el.onclick = (e) => {
+    const b = e.target.closest('[data-q]'); if (!b || b.disabled) return;
+    if (b.dataset.q === 'vulnerable-dependency') { state.cat = state.cat === 'vulnerable-dependency' ? null : 'vulnerable-dependency'; state.q = ''; }
+    else { state.q = state.q === b.dataset.q ? '' : b.dataset.q; const s = $('#q'); if (s) s.value = state.q; }
+    refresh(true);
+  };
+}
 function safeUrl(u) { return /^https?:\/\//i.test(u) ? u : '#'; }
 // Minimal inline formatting: `code` spans, nothing else (content is model-written but escaped first).
 function rich(s) { return esc(s).replace(/`([^`]+)`/g, '<code class="mono">$1</code>'); }
@@ -1210,7 +1288,7 @@ menu.querySelector('.menu-pop').onclick = (e) => {
   menu.classList.remove('open');
   const slug = (D.meta.repo || 'codehawk') + '-' + (D.meta.mode) + (D.meta.pr ? '-' + D.meta.pr.number : '');
   if (b.dataset.export === 'md') copy(markdown(), 'PR comment copied');
-  if (b.dataset.export === 'json') download(`${slug}.codehawk.json`, JSON.stringify(D, null, 2), 'application/json');
+  if (b.dataset.export === 'json') download(`${slug}.codehawk.json`, JSON.stringify({ ...D, sarif: undefined }, null, 2), 'application/json');
   if (b.dataset.export === 'sarif') download(`${slug}.sarif`, JSON.stringify(sarif(), null, 2), 'application/sarif+json');
 };
 function markdown() {
@@ -1224,7 +1302,8 @@ function markdown() {
     if (D.walkthrough.changes?.length) L.push('| Files | Change summary |', '|---|---|', ...D.walkthrough.changes.map((c) => `| ${c.files.map((x) => '`' + x + '`').join('<br>')} | ${String(c.summary).replace(/\|/g, '\\|')} |`), '');
   }
   const block = (f) => {
-    L.push(`<details><summary>${lab(f)} <b>${esc(f.title)}</b> — <code>${esc(f.file)}:${f.line}</code>${f.cwe ? ' · ' + f.cwe : ''}</summary>`, '', f.description, '');
+    L.push(`<details><summary>${lab(f)} <b>${esc(f.title)}</b> — <code>${esc(f.file)}:${f.line}</code>${f.cwe ? ' · ' + f.cwe : ''}${f.owasp ? ' · OWASP ' + f.owasp.slice(0, 3) : ''}</summary>`, '', f.description, '');
+    if (f.dep?.advisories?.length) L.push(...f.dep.advisories.slice(0, 10).map((a) => `- [${a.cves[0] || a.id}](${a.url})${a.cvss?.score != null ? ' · CVSS ' + a.cvss.score : ''} · ${a.severity}${a.malicious ? ' · malicious' : a.fixed ? ' · fixed in ' + a.fixed : ' · no fix yet'}`), '');
     if (f.impact) L.push(`**${f.kind === 'quality' ? 'Why it matters' : 'Impact'}:** ${f.impact}`, '');
     L.push(`**${f.kind === 'quality' ? 'Suggestion' : 'Fix'}:** ${f.fixText}`, '');
     if (f.fix) L.push('```diff', ...f.fix.before.map((l) => '- ' + l), ...f.fix.after.map((l) => '+ ' + l), '```', '');
@@ -1238,10 +1317,10 @@ function markdown() {
   return L.join('\n');
 }
 function sarif() {
-  const LV = { critical: 'error', high: 'error', medium: 'warning', low: 'note', info: 'note' };
-  return { version: '2.1.0', $schema: 'https://json.schemastore.org/sarif-2.1.0.json', runs: [{ tool: { driver: { name: 'CodeHawk', rules: [] } },
-    results: D.findings.filter((f) => triage[f.id] !== 'fp').map((f) => ({ ruleId: `codehawk/${f.category}${f.cwe ? '/' + f.cwe : ''}`, level: LV[f.severity], message: { text: `${f.title}: ${f.description}` },
-      locations: [{ physicalLocation: { artifactLocation: { uri: f.file }, region: { startLine: f.line, endLine: f.endLine } } }] })) }] };
+  // The build's SARIF (with CWE / OWASP taxonomies), minus findings you marked as false positives here.
+  const out = JSON.parse(JSON.stringify(D.sarif || { version: '2.1.0', runs: [{ tool: { driver: { name: 'CodeHawk', rules: [] } }, results: [] }] }));
+  for (const run of out.runs) run.results = run.results.filter((r) => triage[r.properties?.findingId] !== 'fp');
+  return out;
 }
 function download(name, text, type) {
   const a = document.createElement('a');
@@ -1297,6 +1376,7 @@ trustBanner();
 hero();
 walkthrough();
 insights();
+standards();
 workspace();
 extras();
 refresh(false);

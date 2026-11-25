@@ -21,8 +21,8 @@
       "title": "SQL injection in product search",
       "severity": "critical",                // critical | high | medium | low | info
       "category": "injection",               // see list below
-      "cwe": "CWE-89",                       // optional but encouraged
-      "owasp": "A03:2021",                   // optional
+      "cwe": "CWE-89",                       // optional: defaults to the rule's CWE, then the category's
+      "owasp": "A03:2021",                   // optional: derived from the CWE for security findings
       "confidence": "high",                  // high | medium | low  (how sure you are it's exploitable)
       "file": "src/routes/search.ts",        // path relative to the root, forward slashes
       "line": 27, "endLine": 28,             // the vulnerable line(s), 1-based, in the scanned version
@@ -50,6 +50,12 @@
   ]
 }
 ```
+
+## Standards and dependencies
+
+- Every finding ends up with a CWE and, for security findings, an OWASP Top 10 (2021) category. Set `cwe` when you know a more precise one than the rule's (e.g. `CWE-639` for an IDOR found by reading); otherwise build.mjs fills it in. The report and SARIF show CWE names, CWE Top 25 (2024) ranks and OWASP categories.
+- Dependency findings use category `vulnerable-dependency`, point at the lockfile line of the package, and list the candidate in `candidates`; build.mjs attaches the advisories (CVE ids, CVSS, fixed versions) from it. Example:
+  `{ "title": "lodash 4.17.20 has a command-injection CVE", "severity": "high", "category": "vulnerable-dependency", "confidence": "medium", "file": "package-lock.json", "line": 30, "candidates": ["C-012"], "description": "…template() runs attacker-supplied code…", "impact": "…", "fix": "Upgrade lodash to 4.17.21 or later and regenerate the lockfile." }`
 
 ## Rules the build enforces
 

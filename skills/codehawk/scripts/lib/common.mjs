@@ -19,6 +19,7 @@ export const CATEGORIES = {
   memory: 'Memory safety',
   config: 'Insecure configuration',
   'supply-chain': 'Supply chain & CI',
+  'vulnerable-dependency': 'Vulnerable dependency',
   'info-leak': 'Information exposure',
   logic: 'Logic flaw',
   'prompt-injection': 'Prompt injection / hidden text',
@@ -163,6 +164,14 @@ const LANGS = [
 export function langOf(rel) {
   for (const [re, l] of LANGS) if (re.test(rel)) return l;
   return 'text';
+}
+
+/** CodeHawk's own version, from the plugin manifest next to the skill. */
+let _version;
+export function toolVersion() {
+  if (_version) return _version;
+  try { _version = JSON.parse(fs.readFileSync(new URL('../../../../.claude-plugin/plugin.json', import.meta.url), 'utf8')).version; } catch { _version = '0.0.0'; }
+  return _version;
 }
 
 export function shortSha(s) { return s ? String(s).slice(0, 7) : ''; }
