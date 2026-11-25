@@ -36,7 +36,13 @@ const say = (obj, text) => { if (JSON_OUT) process.stdout.write(JSON.stringify(o
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 function healthy(st) {
   return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port: st.port, path: `/${st.token}/health`, timeout: 800 }, (res) => { res.resume(); resolve(res.statusCode === 200); });
+    // Healthy = our server: it knows the recorded secret and reports the recorded pid.
+    const req = http.get({ host: '127.0.0.1', port: st.port, path: `/${st.token}/health`, timeout: 800 }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve(res.statusCode === 200 && body.trim() === `ok ${st.pid}`));
+    });
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
   });
@@ -45,7 +51,9 @@ function healthy(st) {
 // ── stop ──
 if (args.stop) {
   const st = readJson(stateFile, null);
-  if (st?.pid && alive(st.pid)) { try { process.kill(st.pid, 'SIGTERM'); } catch {} }
+  // Signal only a process that proves it is our server (it answers on the recorded port with the
+  // recorded secret); a stale record whose pid now belongs to something else is just removed.
+  if (st?.pid && st.port && st.token && alive(st.pid) && await healthy(st)) { try { process.kill(st.pid, 'SIGTERM'); } catch {} }
   fs.rmSync(stateFile, { force: true });
   say({ ok: true, stopped: !!st }, st ? 'STOPPED  report server' : 'No report server was running.');
   process.exit(0);
@@ -106,7 +114,7 @@ function serve() {
     const given = Buffer.from(parts[1] || '');
     if (parts.length !== 3 || given.length !== token.length || !crypto.timingSafeEqual(given, Buffer.from(token))) return deny(res, 404, 'Not found');
     const name = parts[2];
-    if (name === 'health') { res.writeHead(200, { ...HEAD, 'Content-Type': 'text/plain' }); return res.end('ok\n'); }
+    if (name === 'health') { res.writeHead(200, { ...HEAD, 'Content-Type': 'text/plain' }); return res.end(`ok ${process.pid}\n`); }
     if (name === 'report.html' || name === '') {
       if (name === '') { res.writeHead(302, { ...HEAD, Location: `/${token}/report.html` }); return res.end(); }
       let html;

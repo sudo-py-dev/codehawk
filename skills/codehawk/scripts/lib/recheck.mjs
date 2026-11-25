@@ -8,6 +8,9 @@
 //             re-read is the check
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { RULES, QUALITY_RULES, COMMENT, entropy } from './rules.mjs';
 import { tryGit, shouldSkip, isBinaryPath, langOf, MAX_BYTES } from './common.mjs';
 
@@ -28,7 +31,12 @@ export function recheck(root, f) {
   const p = path.resolve(root, f.file);
   if (!p.startsWith(root + path.sep)) return { state: 'unchecked', hits: [] };
   let text;
-  try { text = fs.readFileSync(p, 'utf8'); } catch { return { state: 'clear', hits: [], reason: 'file removed' }; }
+  try { text = readSource(root, p); } catch (e) {
+    // Only a confirmed missing file counts as removed; any other read failure proves nothing.
+    return e.code === 'ENOENT' && !fs.existsSync(p)
+      ? { state: 'clear', hits: [], reason: 'file removed' }
+      : { state: 'unchecked', hits: [], reason: `could not read ${f.file}: ${e.message}` };
+  }
   const lines = text.split(/\r?\n/);
   const original = new Set((f.checks || []).map((c) => (c.code || '').trim()).filter(Boolean));
   // Where the fix landed: the original lines, widened by how much the file grew or shrank.
@@ -54,7 +62,11 @@ export function codeChanged(root, f) {
   const p = path.resolve(root, f.file);
   if (!p.startsWith(root + path.sep)) return { ok: false, detail: 'file is outside the repository' };
   let text;
-  try { text = fs.readFileSync(p, 'utf8'); } catch { return { ok: true, detail: `${f.file} was removed` }; }
+  try { text = readSource(root, p); } catch (e) {
+    return e.code === 'ENOENT' && !fs.existsSync(p)
+      ? { ok: true, detail: `${f.file} was removed` }
+      : { ok: false, detail: `could not safely read ${f.file}: ${e.message}` };
+  }
   const lines = text.split(/\r?\n/).map((l) => l.trimEnd());
   const drift = Math.abs(lines.length - (f.fileLines || lines.length));
   const lo = Math.max(0, f.line - 21 - drift), hi = Math.min(lines.length - orig.length, f.endLine + 20 + drift);
@@ -64,13 +76,38 @@ export function codeChanged(root, f) {
   return { ok: true, detail: f.endLine > f.line ? `lines ${f.line}–${f.endLine} differ from the scanned version` : `line ${f.line} differs from the scanned version` };
 }
 
+// A git tree of the working tree as it is right now (tracked, modified and untracked files,
+// .gitignore respected), built in a throwaway index so the user's own index is untouched.
+// Working-tree scans record it so a later --changed citation is compared with what was
+// actually scanned, not with HEAD. Null when git can't produce one.
+export function snapshotTree(root) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-idx-'));
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(tmp, 'index') };
+  const g = (...a) => execFileSync('git', ['--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...a], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+  try {
+    g('add', '-A', '--', '.', ':(exclude).codehawk');
+    return g('write-tree').trim() || null;
+  } catch { return null; } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
 // For a fix that landed somewhere else (new middleware, a shared helper): does the cited file
 // really differ from the version that was scanned? Checked with git, not taken on trust.
-export function fileChangedSince(root, ref, rel) {
+// `ref` is the scanned commit; for a working-tree scan pass `{ snapshot }` (from snapshotTree at
+// scan time) instead. A working-tree scan with no snapshot has no baseline: never verified.
+export function fileChangedSince(root, ref, rel, { snapshot = null } = {}) {
   const p = path.resolve(root, rel);
   if (!p.startsWith(root + path.sep)) return { ok: false, detail: `${rel} is outside the repository` };
   const exists = fs.existsSync(p);
-  const base = ref || 'HEAD';
+  if (!ref && snapshot) {
+    const blob = (tryGit(root, 'rev-parse', '--verify', '--quiet', `${snapshot}:${rel}`) || '').trim();
+    if (!blob) return exists ? { ok: true, detail: `${rel} is new since the scan` } : { ok: false, detail: `${rel} doesn't exist` };
+    if (!exists) return { ok: true, detail: `${rel} was removed` };
+    const now = (tryGit(root, 'hash-object', '--no-filters', '--', rel) || '').trim();
+    if (!now) return { ok: false, detail: `could not read ${rel}` };
+    return now !== blob ? { ok: true, detail: `${rel} changed since the scan` } : { ok: false, detail: `${rel} is unchanged since the scan` };
+  }
+  if (!ref) return { ok: false, detail: `no scan-time snapshot to compare ${rel} against (rescan to verify a fix in another file)` };
+  const base = ref;
   const tracked = tryGit(root, 'cat-file', '-e', `${base}:${rel}`) !== null;
   if (!tracked) return exists ? { ok: true, detail: `${rel} is new since the scan` } : { ok: false, detail: `${rel} doesn't exist` };
   if (!exists) return { ok: true, detail: `${rel} was removed` };
@@ -81,15 +118,35 @@ export function fileChangedSince(root, ref, rel) {
 // ── helpers for the two whole-repo checks below ──
 const rulesOf = (ids) => [...new Set(ids)].map((id) => BY_ID.get(id)).filter(Boolean);
 const appliesTo = (r, rel, lang) => (r.langs.includes('*') || r.langs.includes(lang)) && (!r.file || r.file.test(rel));
+function readSource(root, file) {
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.size > MAX_BYTES ||
+      !fs.realpathSync(file).startsWith(fs.realpathSync(root) + path.sep)) {
+    throw new Error('File is not a supported source file inside the repository');
+  }
+  return fs.readFileSync(file, 'utf8');
+}
+
 function readSafe(root, rel) {
   const p = path.resolve(root, rel);
   if (!p.startsWith(root + path.sep)) return null;
-  try { const st = fs.lstatSync(p); if (!st.isFile() || st.size > MAX_BYTES) return null; return fs.readFileSync(p, 'utf8'); } catch { return null; }
+  try { return readSource(root, p); } catch { return null; }
 }
+const MAX_FILES = 20000;
 function repoFiles(root) {
   const out = tryGit(root, 'ls-files', '-co', '--exclude-standard', '-z');
-  return (out || '').split('\0').filter((rel) => rel && !shouldSkip(rel) && !isBinaryPath(rel)).slice(0, 20000);
+  const all = (out || '').split('\0').filter((rel) => rel && !shouldSkip(rel) && !isBinaryPath(rel));
+  return { list: all.slice(0, MAX_FILES), capped: all.length > MAX_FILES };
 }
+// A sibling finding's resolution covers a live match only when its own verified evidence was
+// given about that exact match (same rule, same code). A recorded resolution alone is not proof.
+function reviewedMatch(other, rule, code) {
+  const gone = other?.resolution?.steps?.gone;
+  if (!gone?.ok || gone.by !== 'evidence' || !Array.isArray(gone.reviewed)) return false;
+  const c = code.slice(0, 160);
+  return gone.reviewed.some((h) => h.rule === rule && h.code === c);
+}
+const countLines = (text, code) => { let n = 0; for (const l of text.split(/\r?\n/)) if (l.trim().slice(0, 220) === code) n++; return n; };
 const codeKey = (file, code) => `${file}\u0000${String(code || '').trim().slice(0, 220)}`;
 
 // "Fixed everywhere", step 3, done by script for rule-backed findings: search the whole working
@@ -103,23 +160,31 @@ export function findSiblings(root, f, data) {
   const files = repoFiles(root);
   const own = { lo: f.line - 3, hi: (f.fix ? f.fix.start + f.fix.after.length : f.endLine) + 3 + Math.abs(((readSafe(root, f.file) || '').split('\n').length) - (f.fileLines || 0)) };
   const hits = [];
-  for (const rel of files) {
+  let total = 0;
+  const unread = [];
+  for (const rel of files.list) {
     const lang = langOf(rel);
     const rs = rules.filter((r) => appliesTo(r, rel, lang));
     if (!rs.length) continue;
     const text = readSafe(root, rel);
-    if (text == null) continue;
+    if (text == null) { unread.push(rel); continue; }
     text.split(/\r?\n/).forEach((line, i) => {
       const n = i + 1;
       if (rel === f.file && n >= own.lo && n <= own.hi) return;
       const r = rs.find((x) => matches(x, line));
-      if (!r || hits.length >= 50) return;
+      if (!r) return;
+      total++;
+      if (hits.length >= 50) return;
       const code = line.trim().slice(0, 220);
-      const other = data.findings.find((o) => o.id !== f.id && o.file === rel && ((o.checks || []).some((c) => c.rule === r.id && (c.code || '').trim() === code) || (n >= o.line - 3 && n <= o.endLine + 3)));
-      hits.push({ file: rel, line: n, rule: r.id, code: code.slice(0, 120), finding: other?.id || null, findingResolved: !!other?.resolution, dismissed: dismissed.get(codeKey(rel, code)) || null });
+      // Only an exact match of the same rule on the same code ties a hit to another finding;
+      // being near one proves nothing.
+      const other = data.findings.find((o) => o.id !== f.id && o.file === rel && (o.checks || []).some((c) => c.rule === r.id && (c.code || '').trim() === code));
+      hits.push({ file: rel, line: n, rule: r.id, code: code.slice(0, 120), finding: other?.id || null, findingResolved: reviewedMatch(other, r.id, code), dismissed: dismissed.get(codeKey(rel, code)) || null });
     });
   }
-  return { files: files.length, hits };
+  // Incomplete coverage: some matches not listed, files past the cap, or files that couldn't be read.
+  const truncated = total > hits.length || files.capped || unread.length > 0;
+  return { files: files.list.length, hits, total, truncated, capped: files.capped, unread: unread.length };
 }
 
 // Issues the fixes may have introduced: every rule run over the lines added since the scan
@@ -128,9 +193,11 @@ export function findSiblings(root, f, data) {
 export function newIssues(root, data) {
   const base = data.meta.ref || data.meta.head;
   if (!base) return [];
-  const known = new Set();
-  for (const f of data.findings) for (const c of f.checks || []) known.add(codeKey(f.file, c.code));
-  for (const d of data.dismissed || []) for (const i of d.items) known.add(codeKey(i.file, i.code));
+  // How many occurrences of each reviewed line the review saw, per file.
+  const known = new Map();
+  const note = (file, code) => { const k = codeKey(file, code); known.set(k, (known.get(k) || 0) + 1); };
+  for (const f of data.findings) for (const c of f.checks || []) note(f.file, c.code);
+  for (const d of data.dismissed || []) for (const i of d.items) note(i.file, i.code);
   const tracked = (tryGit(root, 'diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', base, '--') || '').split('\0').filter(Boolean);
   const untracked = (tryGit(root, 'ls-files', '-o', '--exclude-standard', '-z') || '').split('\0').filter((p) => p && !p.startsWith('.codehawk/'));
   const all = [...RULES, ...QUALITY_RULES].filter((r) => r.sev !== 'info');
@@ -147,10 +214,24 @@ export function newIssues(root, data) {
     }
     const lang = langOf(rel);
     const rs = all.filter((r) => appliesTo(r, rel, lang));
+    // A reviewed line is suppressed only while the file holds no more copies of it than were
+    // there at scan time; an extra copy is a new occurrence and gets reported.
+    const baseText = ranges ? tryGit(root, 'show', '--no-textconv', `${base}:${rel}`) : null;
+    const allowed = new Map();
+    const isKnown = (code) => {
+      const k = codeKey(rel, code);
+      if (!known.has(k)) return false;
+      if (!allowed.has(k)) {
+        const c = String(code).trim().slice(0, 220);
+        const before = baseText != null ? countLines(baseText, c) : known.get(k);
+        allowed.set(k, countLines(text, c) <= before);
+      }
+      return allowed.get(k);
+    };
     lines.forEach((line, i) => {
       const n = i + 1;
       if (ranges && !ranges.some(([a, b]) => n >= a && n <= b)) return;
-      if (known.has(codeKey(rel, line))) return;
+      if (isKnown(line)) return;
       const r = rs.find((x) => matches(x, line));
       if (r && out.length < 50) out.push({ file: rel, line: n, rule: r.id, title: r.title, severity: r.sev, category: r.cat, code: line.trim().slice(0, 160) });
     });

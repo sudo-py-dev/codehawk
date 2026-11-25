@@ -66,8 +66,10 @@ function record(entries) {
   }
   res.newIssues = newIssues(root, data); // what the fixes themselves may have introduced
   saveResolutions(dir, res);
-  applyResolutions(data, res);
-  renderOutputs(dir, data);
+  try {
+    applyResolutions(data, res);
+    renderOutputs(dir, data);
+  } catch (e) { e.saved = true; throw e; }
   return res;
 }
 
@@ -82,8 +84,12 @@ function evidenceArg(name) {
   return t;
 }
 
+// A repository test file: under a test directory, or named like one (foo.test.js, foo_test.go, test_foo.py, FooTest.java).
+const TEST_FILE = /(^|\/)(tests?|__tests__|spec|specs|e2e)\/|[._-](test|spec)s?\.\w+$|(^|\/)test_[^/]+\.\w+$|Tests?\.\w+$/;
+
 // The wording test above is cheap; this makes the citation real. Every file:line must exist in the
-// working tree with that many lines, and a bare "test"/"spec" claim must name a test file that exists.
+// working tree with that many lines; otherwise the text must name a test file that exists.
+// A bare "line 42" with no file can't be checked and doesn't count.
 function uncheckable(t) {
   let cited = false;
   for (const m of t.matchAll(/([\w./@+-]+\.\w+):(\d+)/g)) {
@@ -92,10 +98,10 @@ function uncheckable(t) {
     if (Number(m[2]) < 1 || Number(m[2]) > text.split(/\r?\n/).length) return `${m[1]} has no line ${m[2]}.`;
     cited = true;
   }
-  if (cited || /\bline \d+/i.test(t)) return null;
-  // Only the word "test"/"spec" so far: it must point at a test file that's really there.
-  for (const m of t.matchAll(/[\w./@+-]+\.\w+/g)) if (fileLines(m[0]) != null) return null;
-  return 'name the test file (e.g. tests/auth.test.js) or a file:line; "test" on its own can\'t be checked.';
+  if (cited) return null;
+  // No file:line: it must point at a test file that's really there.
+  for (const m of t.matchAll(/[\w./@+-]+\.\w+/g)) if (TEST_FILE.test(m[0]) && fileLines(m[0]) != null) return null;
+  return 'name a test file in the repo (e.g. tests/auth.test.js) or a file:line; a bare line number or "test" on its own can\'t be checked.';
 }
 
 function changedArg() {
@@ -104,6 +110,18 @@ function changedArg() {
   if (!/^[\w./@+-]+(?::\d+(?:-\d+)?)?$/.test(t)) fail('--changed takes the file where the fix landed, e.g. src/middleware/auth.js:12', JSON_OUT);
   return t;
 }
+
+// The revision a piece of evidence was given about: the finding's file plus every file the evidence
+// cites. When any of them changes, the evidence no longer describes the code and must be given again.
+function revisionOf(f, text) {
+  const files = [f.file, ...[...String(text || '').matchAll(/[\w./@+-]+\.\w+/g)].map((m) => m[0])].filter((x, i, a) => a.indexOf(x) === i).sort();
+  return sha(JSON.stringify(files.map((rel) => [rel, fileLines(rel) == null ? null : sha(fileLines(rel))]))).slice(0, 20);
+}
+const reviewedOf = (hits) => hits.map((h) => ({ rule: h.rule, code: h.code }));
+const sameReviewed = (a, b) => {
+  const key = (xs) => xs.map((h) => `${h.rule}\u0000${h.code}`).sort().join('\n');
+  return Array.isArray(a) && key(a) === key(b);
+};
 
 // Run the checklist for each finding and decide what to record. Automatic steps are re-run every
 // time; evidence steps keep what an earlier call recorded unless new evidence is given.
@@ -115,26 +133,37 @@ function resolveIds(ids, { method, note, evidence = null, siblings = null, regre
     const prevRec = current.items[id]?.fingerprint === fingerprint(f) ? current.items[id] : null;
     const prev = prevRec?.steps || {};
     let changed = codeChanged(root, f);
-    if (!changed.ok && changedAt) { // the fix lives elsewhere: verify the cited file really changed
-      const other = fileChangedSince(root, data.meta.ref || data.meta.head, changedAt.replace(/:\d+(?:-\d+)?$/, ''));
-      changed = other.ok ? { ok: true, detail: `fixed in ${changedAt}: ${other.detail}` } : { ok: false, detail: `${changed.detail}; and ${other.detail}` };
+    const citedChange = changedAt || prev.changed?.changedAt || prev.changed?.detail?.match(/^fixed in (.+?): /)?.[1];
+    if (!changed.ok && citedChange) { // the fix lives elsewhere: verify the cited file really changed
+      // Re-verified against the scan baseline on every call, including each closing sweep.
+      const other = fileChangedSince(root, data.meta.ref, citedChange.replace(/:\d+(?:-\d+)?$/, ''), { snapshot: data.meta.snapshot });
+      changed = other.ok ? { ok: true, changedAt: citedChange, detail: `fixed in ${citedChange}: ${other.detail}` } : { ok: false, changedAt: citedChange, detail: `${changed.detail}; and ${other.detail}` };
     }
-    if (!changed.ok && !changedAt && prev.changed?.ok && /^fixed in /.test(prev.changed.detail)) changed = prev.changed;
     const check = recheck(root, f);
     const hitTxt = check.hits.map((h) => `line ${h.line}`).join(', ');
-    // Earlier evidence holds only for the code it was given about: if the rule now fires somewhere
-    // it didn't then (a revert, or a regression after a later change), the evidence is dropped.
-    const keepEvidence = prev.gone?.ok && prev.gone.by === 'evidence' && (check.state !== 'flagged' || (prev.gone.hits ?? prev.gone.detail?.match(/\(rule still matches (.*); reviewed/)?.[1] ?? '') === hitTxt);
+    // Earlier evidence holds only for the code it was given about: the same matches (rule and code,
+    // not just line numbers) and, for unruled findings, the same file contents. A revert, an edit
+    // on the same line, or a later regression drops it.
+    // Evidence set aside by an earlier call counts again once the code is back to what it described.
+    const prevGone = prev.gone?.ok ? prev.gone : prev.gone?.stale || null;
+    const keepEvidence = !!prevGone?.ok && prevGone.by === 'evidence' && (check.state === 'flagged'
+      ? sameReviewed(prevGone.reviewed, reviewedOf(check.hits))
+      : check.state === 'unchecked' ? prevGone.rev === revisionOf(f, prevGone.detail) : true);
     let gone;
     if (check.state === 'clear') gone = { ok: true, by: 'rules', detail: 'the rule that flagged it no longer matches' };
-    else if (evidence) gone = { ok: true, by: 'evidence', hits: check.state === 'flagged' ? hitTxt : '', detail: evidence + (check.state === 'flagged' ? ` (rule still matches ${hitTxt}; reviewed as the safe new code)` : '') };
-    else if (keepEvidence) gone = prev.gone;
-    else gone = { ok: false, detail: check.state === 'flagged' ? `the rule still matches ${hitTxt}` : 'not checked yet: needs the line or test that proves it' };
+    else if (evidence) gone = { ok: true, by: 'evidence', hits: check.state === 'flagged' ? hitTxt : '', reviewed: reviewedOf(check.hits), rev: revisionOf(f, evidence), detail: evidence + (check.state === 'flagged' ? ` (rule still matches ${hitTxt}; reviewed as the safe new code)` : '') };
+    else if (keepEvidence) gone = prevGone;
+    else gone = { ok: false, detail: check.state === 'flagged' ? `the rule still matches ${hitTxt}` : prevGone?.by === 'evidence' ? 'the code changed since the evidence was given: needs the line or test that proves it' : 'not checked yet: needs the line or test that proves it', ...(prevGone?.by === 'evidence' ? { stale: prevGone } : {}) };
+    const prevReg = prev.regression?.ok ? prev.regression : prev.regression?.stale || null;
     const steps = {
       changed,
       gone,
       everywhere: siblings ? { ok: true, by: 'evidence', detail: siblings } : prev.everywhere?.ok && prev.everywhere.by !== 'rules' ? prev.everywhere : autoSiblings(f),
-      regression: regression ? { ok: true, detail: regression } : prev.regression?.ok ? prev.regression : { ok: false, detail: 'not checked yet: what the old code handled still works' },
+      // Regression evidence is tied to the source and test revisions it was given about.
+      regression: regression ? { ok: true, detail: regression, rev: revisionOf(f, regression) }
+        : prevReg?.rev && prevReg.rev === revisionOf(f, prevReg.detail) ? prevReg
+        : prevReg ? { ok: false, detail: 'the code or tests changed since this was checked: check again that what the old code handled still works', stale: prevReg }
+        : { ok: false, detail: 'not checked yet: what the old code handled still works' },
     };
     results.push({ id, steps, hits: check.hits });
     // Never mark a fix that didn't happen: the rule still fires with no evidence, or nothing changed and nothing proves it.
@@ -154,6 +183,10 @@ function autoSiblings(f) {
   if (!sib) return { ok: false, detail: 'not checked yet: other places with the same bug' };
   const open = sib.hits.filter((h) => !h.dismissed && !h.findingResolved);
   const where = (hs) => hs.slice(0, 6).map((h) => `\`${h.file}:${h.line}\`${h.finding ? ` (${h.finding})` : ''}`).join(', ') + (hs.length > 6 ? ` +${hs.length - 6} more` : '');
+  if (sib.truncated) {
+    const why = [sib.total > sib.hits.length && `${sib.total - sib.hits.length} match(es) past the listing limit`, sib.capped && 'the repository has more files than the search covers', sib.unread && `${sib.unread} file(s) couldn't be read`].filter(Boolean).join('; ');
+    return { ok: false, detail: `the search was incomplete (${why})${open.length ? `; same pattern at ${where(open)}` : ''}: check the rest with --siblings "…"`, hits: open.slice(0, 20) };
+  }
   if (!open.length) return { ok: true, by: 'rules', detail: sib.hits.length ? `no other unhandled matches of the rule in ${sib.files} files (${where(sib.hits)} already handled)` : `no other matches of the rule in ${sib.files} files` };
   return { ok: false, detail: `same pattern still at ${where(open)}`, hits: open.slice(0, 20) };
 }
@@ -198,7 +231,8 @@ function splitKeep(text) {
   for (let i = 0; i < parts.length; i += 2) { lines.push(parts[i]); eols.push(parts[i + 1] || ''); }
   return { lines, eols };
 }
-const planToken = (items) => sha(JSON.stringify(items.filter((r) => r.status === 'ready').map((r) => [r.id, r.file, r.start, r.fileHash, r.before, r.after]))).slice(0, 20);
+// The token covers the scan and the exact findings (by fingerprint) as well as the patches.
+const planToken = (items, scanId) => sha(JSON.stringify([scanId || null, items.filter((r) => r.status === 'ready').map((r) => [r.id, r.fingerprint, r.file, r.start, r.fileHash, r.before, r.after])])).slice(0, 20);
 
 function assess(f) {
   if (f.resolution) return { id: f.id, status: 'resolved', reason: `Already resolved (${f.resolution.passed}/4 checked). Use \`fix.mjs reopen\` first if it needs another fix.` };
@@ -217,7 +251,7 @@ function assess(f) {
     if (hits.length === 1) idx = hits[0];
     else return { id: f.id, status: 'drifted', reason: hits.length ? 'The original code appears more than once now.' : 'The code changed since the scan.' };
   }
-  return { id: f.id, status: 'ready', file: f.file, start: idx + 1, before: want, after: f.fix.after, fileHash: sha(text), eol };
+  return { id: f.id, fingerprint: fingerprint(f), status: 'ready', file: f.file, start: idx + 1, before: want, after: f.fix.after, fileHash: sha(text), eol };
 }
 
 if (cmd === 'plan') {
@@ -238,8 +272,8 @@ if (cmd === 'plan') {
   if (data.meta.ref && head && head !== data.meta.ref) warnings.push(`You're on ${head.slice(0, 7)}, but the scan read ${data.meta.ref.slice(0, 7)}${data.meta.pr ? ` (PR #${data.meta.pr.number})` : ''}. Patches go into your current working tree, only where the original code still matches.`);
   if (dirty) warnings.push('You have uncommitted changes. Consider committing or stashing them first so the fixes are easy to review and undo.');
   if (data.meta.trust?.level === 'untrusted') warnings.push('This code is from an untrusted source. Fixing it locally is fine, but do not run or test it, and push to someone else\'s branch only with their consent.');
-  const token = planToken(ready);
-  writeJson(planFile, { token, createdAt: new Date().toISOString(), items });
+  const token = planToken(ready, data.meta.scanId);
+  writeJson(planFile, { token, scanId: data.meta.scanId || null, createdAt: new Date().toISOString(), items });
   if (JSON_OUT) { process.stdout.write(JSON.stringify({ ok: true, token, warnings, items }) + '\n'); process.exit(0); }
   console.log(`FIX PLAN — nothing has been changed yet.\n`);
   for (const w of warnings) console.log(`! ${w}`);
@@ -259,8 +293,14 @@ if (cmd === 'plan') {
   if (!plan) fail('No fix plan. Run `fix.mjs plan` and get the user\'s approval first.', JSON_OUT);
   if (!args.token || args.token !== plan.token) fail('Token missing or does not match the latest plan. Re-run `fix.mjs plan`, show it to the user, and use the token it prints.', JSON_OUT);
   // The token covers the patches themselves: an edited fix-plan.json can't ride on an approval.
-  if (planToken(plan.items) !== plan.token) fail('The fix plan was changed after it was shown. Re-run `fix.mjs plan` and get approval again.', JSON_OUT);
+  if (planToken(plan.items, plan.scanId) !== plan.token) fail('The fix plan was changed after it was shown. Re-run `fix.mjs plan` and get approval again.', JSON_OUT);
+  // The plan belongs to one scan and one set of findings: a rescan or rebuild in between voids it.
+  if ((plan.scanId || null) !== (data.meta.scanId || null)) fail('The fix plan was made for a different scan. Re-run `fix.mjs plan` and get approval again.', JSON_OUT);
   const ready = plan.items.filter((i) => i.status === 'ready');
+  for (const i of ready) {
+    const f = data.findings.find((x) => x.id === i.id);
+    if (!f || fingerprint(f) !== i.fingerprint) fail(`${i.id} is not the finding the plan was made for. Re-run \`fix.mjs plan\` and get approval again.`, JSON_OUT);
+  }
   // Re-check every file before touching any of them: all or nothing.
   for (const i of ready) {
     const now = fileLines(i.file);
@@ -294,15 +334,36 @@ if (cmd === 'plan') {
   const done = [];
   try { for (const w of writes) { fs.renameSync(w.tmp, w.p); done.push(w); } }
   catch (e) {
-    // Put back what was already replaced so the tree is as it was before the apply.
-    for (const w of writes) if (!done.includes(w)) fs.rmSync(w.tmp, { force: true });
-    for (const w of done) { try { fs.renameSync(stage(w.p, w.original, w.mode), w.p); } catch {} }
-    fail(`Could not apply the patches, so none were kept: ${e.message}`, JSON_OUT);
+    // Put back what was already replaced first, every file independently, then clean up temp files.
+    const notRestored = [], cleanup = [];
+    for (const w of done) {
+      try { fs.renameSync(stage(w.p, w.original, w.mode), w.p); }
+      catch (err) { notRestored.push(`${path.relative(root, w.p)} (${err.message})`); }
+    }
+    for (const w of writes) if (!done.includes(w) && w.tmp) {
+      try { fs.rmSync(w.tmp, { force: true }); } catch (err) { cleanup.push(`${w.tmp} (${err.message})`); }
+    }
+    const extra = cleanup.length ? ` Leftover temp files: ${cleanup.join(', ')}.` : '';
+    if (notRestored.length) fail(`Could not apply the patches: ${e.message}. Rollback was INCOMPLETE; these files still hold the patched version: ${notRestored.join(', ')}. Restore them with \`git diff\` / \`git checkout -- <file>\`.${extra}`, JSON_OUT);
+    fail(`Could not apply the patches, so none were kept: ${e.message}.${extra}`, JSON_OUT);
   }
   fs.rmSync(planFile, { force: true }); // a token works once
   const skipped = plan.items.filter((i) => i.status !== 'ready').map((i) => ({ id: i.id, status: i.status, reason: i.reason }));
   // Each applied patch is resolved right away and re-checked against its rules.
-  const r = applied.length ? resolveIds(applied.map((a) => a.id), { method: 'patch', always: true }) : null;
+  let r = null;
+  try { r = applied.length ? resolveIds(applied.map((a) => a.id), { method: 'patch', always: true }) : null; }
+  catch (e) {
+    // The patches are on disk; only the bookkeeping failed. Say what was applied and how to finish.
+    const ids = applied.map((a) => a.id).join(' ');
+    const recover = e.saved
+      ? `node <skill>/scripts/fix.mjs check ${JSON.stringify(root)}`
+      : `node <skill>/scripts/fix.mjs resolve ${JSON.stringify(root)} ${ids}`;
+    const msg = `${e.saved ? 'Resolutions were saved, but publishing the report failed' : 'Recording the resolutions failed'}: ${e.message}. Do NOT re-apply the patches; finish with: ${recover}`;
+    if (JSON_OUT) { process.stdout.write(JSON.stringify({ ok: false, applied, skipped, publicationError: msg, recover }) + '\n'); process.exit(1); }
+    for (const a of applied) console.log(`✔ ${a.id}  ${a.file}:${a.line}`);
+    console.error(`\n! ${msg}`);
+    process.exit(1);
+  }
   if (JSON_OUT) process.stdout.write(JSON.stringify({ ok: true, applied, skipped, resolved: r?.marked || [], checklists: r?.results || [], progress: data.progress }) + '\n');
   else {
     for (const a of applied) console.log(`✔ ${a.id}  ${a.file}:${a.line}`);

@@ -28,7 +28,9 @@ export function scoreFindings(findings) {
 
 // ── resolutions ──
 export const RESOLUTION_METHODS = { patch: 'CodeHawk patch', manual: 'Manual fix' };
-export const fingerprint = (f) => `${f.file}:${f.category}:${f.title}`;
+// One finding occurrence: two findings with the same title in one file but at different lines, or
+// backed by different candidates, never share a resolution. Stable across rebuilds of one scan.
+export const fingerprint = (f) => `${f.file}:${f.category}:${f.title}:${f.line ?? ''}-${f.endLine ?? f.line ?? ''}:${[...(f.candidates || [])].sort().join(',')}`;
 // The fix checklist. A fix is "verified" only when all four pass.
 export const FIX_STEPS = [
   ['changed', 'Code changed'],
@@ -80,9 +82,10 @@ function writeLive(dir, data) {
 
 export function renderOutputs(dir, data) {
   writeJson(path.join(dir, 'report.json'), data);
-  // Code scanning should reflect what's still open: resolved findings are left out of report.sarif.
+  // Code scanning should reflect what's still open: only fully verified fixes leave report.sarif;
+  // a resolution that failed any check stays in the export.
   if (data.sarif) {
-    const resolved = new Set(data.findings.filter((f) => f.resolution).map((f) => f.id));
+    const resolved = new Set(data.findings.filter((f) => f.resolution?.verified).map((f) => f.id));
     const sarif = JSON.parse(JSON.stringify(data.sarif));
     for (const run of sarif.runs) run.results = run.results.filter((r) => !resolved.has(r.properties?.findingId));
     writeJson(path.join(dir, 'report.sarif'), sarif);

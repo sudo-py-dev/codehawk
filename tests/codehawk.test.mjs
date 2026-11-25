@@ -71,6 +71,18 @@ test('build refuses unreviewed candidates, then renders html, sarif and markdown
     file: sql.file, line: sql.line, candidates: [sql.id], description: 'Concatenated `q`.', fix: 'Bind it.',
     fixCode: "const rows = await db.query('SELECT * FROM products WHERE name LIKE $1', [`%${q}%`]);" };
   fs.writeFileSync(out, JSON.stringify({ findings: [finding], dismissed: [], reviewed: readList(dir) }));
+  const scanFile = path.join(dir, '.codehawk', 'candidates.json');
+  const scan = fs.readFileSync(scanFile, 'utf8');
+  fs.rmSync(scanFile);
+  assert.match(runFail('build.mjs', dir, '--partial').error, /candidate results/);
+  fs.writeFileSync(scanFile, JSON.stringify({ ...JSON.parse(scan), scanId: 'previous-scope' }));
+  assert.match(runFail('build.mjs', dir).error, /stale candidate results/);
+  fs.writeFileSync(scanFile, scan);
+
+  fs.writeFileSync(out, JSON.stringify({ findings: [finding], reviewed: readList(dir),
+    dismissed: [{ candidates: [sql.id], reason: 'checked by hand in this test fixture' }] }));
+  assert.match(runFail('build.mjs', dir).errors.join('\n'), /already has a disposition/);
+  fs.writeFileSync(out, JSON.stringify({ findings: [finding], dismissed: [], reviewed: readList(dir) }));
   const bad = runFail('build.mjs', dir);
   assert.equal(bad.ok, false);
   assert.match(bad.errors.join('\n'), /neither confirmed nor dismissed/);
@@ -202,6 +214,8 @@ test('apply keeps each line ending and resolve checks the evidence it cites', ()
   assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', 'still works: src/nope.js:3').error, /isn't a file in the repo/);
   assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', `still works: ${sql.file}:99999`).error, /has no line 99999/);
   assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', 'no test needed').error, /can't be checked/);
+  assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', 'covered by a test at line 999999').error, /can't be checked/, 'a bare line number needs a file');
+  assert.match(runFail('fix.mjs', 'resolve', dir, id, '--regression', 'see the test notes in README.md').error, /can't be checked/, 'a non-test file is not a test');
   assert.equal(run('fix.mjs', 'resolve', dir, id, '--regression', `same rows for empty search: ${sql.file}:${sql.line}`).resolved[0], id);
 });
 
@@ -279,6 +293,15 @@ test('resolution status: apply marks resolved, resolve/reopen update every outpu
   const r = run('fix.mjs', 'resolve', dir, cqId, '--siblings', 'none: only catch block in src/lib/db.js:6', '--regression', 'errors still reach the caller: src/lib/errors.js:1 rethrows');
   assert.equal(r.progress.resolved, 2);
   assert.equal(r.progress.verified, 2);
+
+  const helper = path.join(dir, 'src', 'lib', 'errors.js');
+  const helperText = fs.readFileSync(helper, 'utf8');
+  fs.rmSync(helper);
+  const reverted = run('fix.mjs', 'check', dir);
+  assert.ok(reverted.attention.find(({ id, missing }) => id === cqId && missing.includes('changed')));
+  fs.writeFileSync(helper, helperText);
+  assert.equal(run('fix.mjs', 'check', dir).progress.verified, 2);
+
   assert.ok(r.progress.projected.score > report().score, 'projected score improves');
   assert.equal(r.progress.projected.grade, 'A');
   assert.equal(byTitle('Swallowed error').resolution.note, 'Logged and rethrown', 'the note is kept');
@@ -373,6 +396,13 @@ test('serve.mjs: local-only, secret URL, read-only, pushes resolutions, reuses a
     });
     assert.equal(pushed.resolutions[id].status, 'resolved');
     assert.equal(pushed.progress.resolved, 1);
+    // A record whose pid isn't our server (wrong pid for that port) is removed without signalling it.
+    const stFile = path.join(dir, '.codehawk', 'serve.json');
+    const real = JSON.parse(fs.readFileSync(stFile, 'utf8'));
+    fs.writeFileSync(stFile, JSON.stringify({ ...real, pid: process.pid }));
+    assert.equal(run('serve.mjs', dir, '--stop').stopped, true, 'the stale record is cleared');
+    assert.equal((await get(`/${secret}/health`)).status, 200, 'the unverified pid was not signalled, the server still runs');
+    fs.writeFileSync(stFile, JSON.stringify(real));
   } finally {
     run('serve.mjs', dir, '--stop');
   }

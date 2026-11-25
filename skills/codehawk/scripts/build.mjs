@@ -21,7 +21,11 @@ const JSON_OUT = !!args.json;
 const dir = outDir(root);
 const scope = readJson(path.join(dir, 'scope.json'), null);
 if (!scope) fail('No scope yet. Run target.mjs, then scan.mjs, then write findings.json.', JSON_OUT);
-const cand = readJson(path.join(dir, 'candidates.json'), { candidates: [], fileStats: [], totalFiles: scope.files.length });
+const scanId = scope.scanId || scope.generatedAt || null;
+const cand = readJson(path.join(dir, 'candidates.json'), null);
+if (!cand || !Array.isArray(cand.candidates) || !Array.isArray(cand.readList) || cand.scanId !== scanId) {
+  fail('Missing, invalid, or stale candidate results. Run scan.mjs for the current scope.', JSON_OUT);
+}
 const findingsFile = path.join(dir, 'findings.json');
 if (!fs.existsSync(findingsFile)) fail(`Missing ${findingsFile}. Review the worksheet and write it (see references/findings-schema.md).`, JSON_OUT);
 let doc;
@@ -32,7 +36,21 @@ const warnings = [];
 const CONF = ['high', 'medium', 'low'];
 const candById = new Map(cand.candidates.map((c) => [c.id, c]));
 const accounted = new Set();
+function account(id, where) {
+  if (!candById.has(id)) errors.push(`${where}: unknown candidate ${id}`);
+  else if (accounted.has(id)) errors.push(`${where}: candidate ${id} already has a disposition`);
+  accounted.add(id);
+}
 const inScope = new Set(scope.files.map((f) => f.path));
+
+// A ready patch: the scanned lines it replaces and the reviewer's replacement for them.
+function makeFix(start, before, fixCode) {
+  const indent = (before[0] || '').match(/^\s*/)[0];
+  let after = fixCode.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+  // Re-indent the replacement if the model wrote it flush-left.
+  if (after.length && after.every((l) => !l || !/^\s/.test(l)) && indent) after = after.map((l) => (l ? indent + l : l));
+  return { start, before, after };
+}
 
 const findings = (doc.findings || []).map((f, i) => {
   const where = `findings[${i}]${f.title ? ` "${f.title}"` : ''}`;
@@ -40,7 +58,7 @@ const findings = (doc.findings || []).map((f, i) => {
   if (f.severity && !SEVERITIES.includes(f.severity)) errors.push(`${where}: severity must be one of ${SEVERITIES.join(', ')}`);
   if (f.category && !CATEGORIES[f.category]) errors.push(`${where}: unknown category "${f.category}" (use one of ${Object.keys(CATEGORIES).join(', ')})`);
   if (f.confidence && !CONF.includes(f.confidence)) errors.push(`${where}: confidence must be high, medium or low`);
-  for (const id of f.candidates || []) { if (!candById.has(id)) errors.push(`${where}: unknown candidate ${id}`); accounted.add(id); }
+  for (const id of f.candidates || []) account(id, where);
   // Standards: every finding gets a CWE (reviewer's, else its rule's, else its category's);
   // security findings also get an OWASP Top 10 (2021) category.
   const linked = (f.candidates || []).map((id) => candById.get(id)).filter(Boolean);
@@ -65,15 +83,7 @@ const findings = (doc.findings || []).map((f, i) => {
   const start = Math.max(1, line - ctx);
   const end = Math.min(lines.length, endLine + ctx);
   const snippet = text ? { start, lines: lines.slice(start - 1, end), hl: [line, Math.min(endLine, lines.length)] } : null;
-  let fix = null;
-  if (typeof f.fixCode === 'string' && text) {
-    const before = lines.slice(line - 1, endLine);
-    const indent = (before[0] || '').match(/^\s*/)[0];
-    let after = f.fixCode.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
-    // Re-indent the replacement if the model wrote it flush-left.
-    if (after.length && after.every((l) => !l || !/^\s/.test(l)) && indent) after = after.map((l) => (l ? indent + l : l));
-    fix = { start: line, before, after };
-  }
+  const fix = typeof f.fixCode === 'string' && text ? makeFix(line, lines.slice(line - 1, endLine), f.fixCode) : null;
   return {
     id: f.id || null,
     title: f.title, kind: kindOf(f.category), severity: f.severity, category: f.category, categoryLabel: CATEGORIES[f.category] || f.category,
@@ -94,7 +104,7 @@ const dismissed = (doc.dismissed || []).map((d, i) => {
   const ids = d.candidates || (d.candidate ? [d.candidate] : []);
   if (!ids.length) errors.push(`dismissed[${i}]: needs "candidates": ["C-…"]`);
   if (!d.reason) errors.push(`dismissed[${i}]: needs a "reason"`);
-  for (const id of ids) { if (!candById.has(id)) errors.push(`dismissed[${i}]: unknown candidate ${id}`); accounted.add(id); }
+  for (const id of ids) account(id, `dismissed[${i}]`);
   return { reason: d.reason, items: ids.map((id) => candById.get(id)).filter(Boolean).map(({ id, title, file, line, code, severity }) => ({ id, title, file, line, code, severity })) };
 });
 
@@ -144,7 +154,16 @@ if (errors.length) {
     const byKey = new Map(prev.findings.map((f) => [`${f.file}:${f.category}:${f.title}:${f.line}`, f]));
     for (const f of findings) {
       const old = byKey.get(`${f.file}:${f.category}:${f.title}:${f.line}`);
-      if (old?.snippet) Object.assign(f, { snippet: old.snippet, fileLines: old.fileLines, fix: old.fix });
+      if (!old?.snippet) continue;
+      // Keep the scanned code (snippet and the lines a patch replaces), but take the replacement
+      // from the current review: a corrected or removed fixCode must not bring the old patch back.
+      const src = doc.findings[findings.indexOf(f)];
+      const s = old.snippet;
+      const before = old.fix?.before || s.lines.slice(f.line - s.start, f.endLine - s.start + 1);
+      Object.assign(f, {
+        snippet: s, fileLines: old.fileLines,
+        fix: typeof src?.fixCode === 'string' && before.length ? makeFix(old.fix?.start || f.line, before, src.fixCode) : null,
+      });
     }
   }
 }
@@ -207,19 +226,26 @@ const depNote = !deps ? null
   : deps.status === 'offline' ? 'Dependencies were not checked for known vulnerabilities (scan ran with --offline).'
   : deps.status === 'error' ? `The known-vulnerability lookup (OSV.dev) failed, so dependencies were not checked: ${deps.error}.`
   : null;
+const readableFiles = cand.fileStats?.length ?? 0;
+const reviewedInScope = (cand.fileStats || []).filter((f) => reviewedSet.has(f.path)).length;
+const coverageNotes = [];
+if (reviewedInScope < readableFiles) coverageNotes.push(`Manual review recorded for ${reviewedInScope} of ${readableFiles} readable files in scope. Remaining files received automated triage only or were skipped.`);
+if (cand.unreadable) coverageNotes.push(`${cand.unreadable} file(s) could not be read as source.`);
+if (cand.truncated) coverageNotes.push(`${cand.truncated} automated match(es) were omitted by candidate limits.`);
+if (args.partial) coverageNotes.push(...warnings.filter((w) => w.includes('neither')));
 const data = {
   version: 1,
   meta: {
-    scanId: scope.scanId || scope.generatedAt || null,
+    scanId, snapshot: cand.snapshot || null,
     label: scope.label, mode: scope.mode, repo: scope.repoName, remote: scope.remote, ref: scope.ref, head: scope.head, base: scope.base,
     pr: scope.pr ? { ...scope.pr, body: undefined } : null, commit: scope.commit || null,
-    generatedAt: new Date().toISOString(), filesScanned: scope.files.length, linesScanned: totalLines,
+    generatedAt: new Date().toISOString(), filesScanned: readableFiles, linesScanned: totalLines,
     linesChanged: scope.files.reduce((s, f) => s + (f.additions || 0), 0),
     candidates: cand.candidates.length,
     trust: scope.trust || { level: 'unknown', reasons: [] },
     injectionHits: cand.candidates.filter((c) => c.category === 'prompt-injection').length,
   },
-  summary: doc.summary || '', notes: [...(doc.notes || []), ...(depNote && !(doc.notes || []).some((n) => /OSV|offline|not checked for known vulnerab/i.test(n)) ? [depNote] : []), ...skippedFiles.map((x) => `Not reviewed: \`${x.file}\` — ${x.reason}`), ...(scope.mode === 'repo' && scope.skipped ? [`${scope.skipped} vendored/built/lock/binary file(s) were outside this whole-repo scan.`] : [])], reviewed: doc.reviewed || [],
+  summary: doc.summary || '', notes: [...(doc.notes || []), ...coverageNotes, ...(depNote && !(doc.notes || []).some((n) => /OSV|offline|not checked for known vulnerab/i.test(n)) ? [depNote] : []), ...skippedFiles.map((x) => `Not reviewed: \`${x.file}\` — ${x.reason}`), ...(scope.mode === 'repo' && scope.skipped ? [`${scope.skipped} vendored/built/lock/binary file(s) were outside this whole-repo scan.`] : [])], reviewed: doc.reviewed || [],
   score, grade, qualityScore, qualityGrade, verdict, counts, kindCounts, focus: cand.focus || 'all',
   walkthrough: wt,
   standards, deps,
