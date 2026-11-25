@@ -18,42 +18,60 @@ const JSON_OUT = !!args.json;
 if (!fs.existsSync(root)) fail(`No such folder: ${root}`, JSON_OUT);
 const inGit = isGitRepo(root);
 
-/** Parse `git diff -U0` output into [{path, oldPath, status, changed:[[s,e]], additions, deletions}] */
+// Raw records carry literal filenames. The patch sections follow in the same order
+// and contribute only line ranges and counts.
 function parseDiff(text) {
+  if (!text) return [];
+  const boundary = text.indexOf('\0\0');
+  if (boundary < 0) fail('Git did not return diff path records.', JSON_OUT);
+  const records = text.slice(0, boundary).split('\0');
   const files = [];
-  let cur = null;
+  for (let i = 0; i < records.length;) {
+    const code = records[i++].split(' ').at(-1)?.[0];
+    const oldPath = records[i++];
+    const paired = code === 'R' || code === 'C';
+    const currentPath = paired ? records[i++] : oldPath;
+    const status = { A: 'added', D: 'deleted', R: 'renamed', C: 'added' }[code] || 'modified';
+    if (!code || !oldPath || !currentPath) fail('Git returned an incomplete diff path record.', JSON_OUT);
+    const file = { path: currentPath, oldPath, status, changed: [], additions: 0, deletions: 0, binary: false };
+    // Git formats a type change as a deletion followed by an addition.
+    if (code === 'T') {
+      files.push({ ...file, status: 'deleted', changed: [] });
+      file.status = 'added';
+    }
+    files.push(file);
+  }
+
+  let section = -1;
   let inHunk = false;
-  for (const line of text.split('\n')) {
+  for (const line of text.slice(boundary + 2).split('\n')) {
     if (line.startsWith('diff --git ')) {
+      section++;
       inHunk = false;
-      cur = { path: null, oldPath: null, status: 'modified', changed: [], additions: 0, deletions: 0, binary: false };
-      files.push(cur);
-      const m = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
-      if (m) { cur.oldPath = m[1]; cur.path = m[2]; }
-    } else if (!cur) continue;
-    else if (inHunk && line.startsWith('+')) cur.additions++;
-    else if (inHunk && line.startsWith('-')) cur.deletions++;
-    else if (line.startsWith('new file mode')) cur.status = 'added';
-    else if (line.startsWith('deleted file mode')) cur.status = 'deleted';
-    else if (line.startsWith('rename from ')) { cur.status = 'renamed'; cur.oldPath = line.slice(12); }
-    else if (line.startsWith('rename to ')) cur.path = line.slice(10);
-    else if (line.startsWith('Binary files')) cur.binary = true;
-    else if (line.startsWith('+++ ')) { if (line !== '+++ /dev/null') cur.path = line.slice(6).replace(/\t$/, ''); }
+      continue;
+    }
+    const file = files[section];
+    if (!file) continue;
+    if (inHunk && line.startsWith('+')) file.additions++;
+    else if (inHunk && line.startsWith('-')) file.deletions++;
+    else if (line.startsWith('Binary files ') || line === 'GIT binary patch') file.binary = true;
     else if (line.startsWith('@@')) {
-      const m = line.match(/^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-      if (m) {
-        inHunk = true;
-        const start = +m[2]; const count = m[3] === undefined ? 1 : +m[3];
-        if (count > 0) cur.changed.push([start, start + count - 1]);
-      }
+      const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (!hunk) continue;
+      inHunk = true;
+      const start = Number(hunk[1]);
+      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      if (count > 0) file.changed.push([start, start + count - 1]);
     }
   }
-  return files.filter((f) => f.path && !f.binary && f.status !== 'deleted');
+  if (section + 1 !== files.length) fail('Git diff path records and patch sections do not match.', JSON_OUT);
+  return files.filter((file) => !file.binary && file.status !== 'deleted');
 }
 
+const DIFF_OPTIONS = ['--raw', '-z', '-p', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', '--submodule=short'];
 function diffFiles(a, b) {
   const range = b ? [a, b] : [a];
-  return parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', ...range));
+  return parseDiff(git(root, 'diff', ...DIFF_OPTIONS, ...range, '--'));
 }
 
 function resolve(ref) {
@@ -158,7 +176,7 @@ if (args.pr) {
   const parent = resolve(`${sha}^`);
   const files = parent
     ? diffFiles(parent, sha)
-    : parseDiff(git(root, 'diff-tree', '-p', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--root', '-r', sha));
+    : parseDiff(git(root, 'diff-tree', '--no-commit-id', ...DIFF_OPTIONS, '--root', '-r', sha, '--'));
   const s = subject(sha);
   scope = { mode: 'commit', ref: sha, base: parent, label: `Commit ${shortSha(sha)}${s.title ? ' · ' + s.title : ''}`, commit: { sha, ...s }, files };
 } else if (args.range) {
@@ -176,13 +194,13 @@ if (args.pr) {
   const mb = git(root, 'merge-base', B, 'HEAD').trim();
   const branch = (tryGit(root, 'branch', '--show-current') || '').trim() || shortSha(head);
   // Committed branch work plus whatever is uncommitted on top of it, read from disk.
-  const files = parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', mb));
-  for (const p of (tryGit(root, 'ls-files', '--others', '--exclude-standard') || '').split('\n').filter(Boolean)) files.push({ path: p, status: 'added', changed: null, additions: 0, deletions: 0 });
+  const files = diffFiles(mb);
+  for (const p of (tryGit(root, 'ls-files', '--others', '--exclude-standard', '-z') || '').split('\0').filter(Boolean)) files.push({ path: p, status: 'added', changed: null, additions: 0, deletions: 0 });
   scope = { mode: 'branch', ref: null, base: mb, label: `${branch} vs ${baseName}`, files };
 } else if (args.working) {
   if (!inGit) fail('Scanning uncommitted changes needs a git repository.', JSON_OUT);
-  const files = parseDiff(git(root, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', 'HEAD'));
-  const untracked = (tryGit(root, 'ls-files', '--others', '--exclude-standard') || '').split('\n').filter(Boolean);
+  const files = diffFiles('HEAD');
+  const untracked = (tryGit(root, 'ls-files', '--others', '--exclude-standard', '-z') || '').split('\0').filter(Boolean);
   for (const p of untracked) files.push({ path: p, status: 'added', changed: null, additions: 0, deletions: 0 });
   scope = { mode: 'working', ref: null, base: head, label: 'Uncommitted changes', files };
 } else {
@@ -190,8 +208,8 @@ if (args.pr) {
   const at = args.at ? resolve(args.at) : null;
   if (args.at && !at) fail(`Unknown commit: ${args.at}`, JSON_OUT);
   let list;
-  if (at) list = git(root, 'ls-tree', '-r', '--name-only', at).split('\n');
-  else if (inGit) list = git(root, 'ls-files', '--cached', '--others', '--exclude-standard').split('\n');
+  if (at) list = git(root, 'ls-tree', '-r', '--name-only', '-z', at).split('\0');
+  else if (inGit) list = git(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z').split('\0');
   else {
     list = [];
     const walk = (dir) => {

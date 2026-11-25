@@ -29,7 +29,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { parseArgs, OUT_DIR, readJson, writeJson, tryGit, fail, EVIDENCE, SEVERITIES } from './lib/common.mjs';
+import { parseArgs, outputPath, readJson, writeJson, tryGit, fail, EVIDENCE, SEVERITIES } from './lib/common.mjs';
 import { fingerprint, loadResolutions, saveResolutions, applyResolutions, renderOutputs, RESOLUTION_METHODS, FIX_STEPS, stepsPassed } from './lib/render.mjs';
 import { recheck, codeChanged, fileChangedSince, findSiblings, newIssues } from './lib/recheck.mjs';
 
@@ -37,7 +37,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 const args = parseArgs(rest, ['all', 'manual', 'json', 'verified']);
 const root = path.resolve(args._[0] || '.');
 const JSON_OUT = !!args.json;
-const dir = path.join(root, OUT_DIR);
+const dir = outputPath(root);
 const data = readJson(path.join(dir, 'report.json'), null);
 if (!data) fail('No report yet. Run a scan and build.mjs first.', JSON_OUT);
 const planFile = path.join(dir, 'fix-plan.json');
@@ -61,7 +61,9 @@ function record(entries) {
       ...(done ? { verifiedAt: prev?.verifiedAt && stepsPassed(prev.steps) === FIX_STEPS.length ? prev.verifiedAt : now } : {}),
     };
   }
-  res.newIssues = newIssues(root, data); // what the fixes themselves may have introduced
+  const issues = newIssues(root, data);
+  res.newIssues = issues ?? [];
+  res.newIssuesNotice = issues === null ? 'New issues could not be checked against the working-tree baseline. Rescan to capture a usable baseline.' : null;
   saveResolutions(dir, res);
   try {
     applyResolutions(data, res);
@@ -336,24 +338,44 @@ if (cmd === 'plan') {
     }
     writes.push({ p, original, body: lines.map((l, k) => l + eols[k]).join(''), mode: fs.statSync(p).mode & 0o7777 });
   }
-  // Fresh random temp names opened with O_EXCL, so a planted file or symlink can't redirect the write.
-  const tmpFor = (p) => path.join(path.dirname(p), `.${path.basename(p)}.codehawk-${crypto.randomBytes(6).toString('hex')}.tmp`);
-  const stage = (p, body, mode) => { const t = tmpFor(p); fs.writeFileSync(t, body, { flag: 'wx', mode }); fs.chmodSync(t, mode); return t; };
+  // Track ownership as soon as exclusive creation succeeds, before writing or changing mode.
+  const staged = new Set();
+  const stage = (p, body, mode) => {
+    const temp = path.join(path.dirname(p), `.${path.basename(p)}.codehawk-${crypto.randomBytes(6).toString('hex')}.tmp`);
+    const fd = fs.openSync(temp, 'wx', mode);
+    staged.add(temp);
+    try {
+      fs.writeFileSync(fd, body);
+      fs.fchmodSync(fd, mode);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return temp;
+  };
+  const publish = (temp, destination) => {
+    fs.renameSync(temp, destination);
+    staged.delete(temp);
+  };
+  const cleanup = () => {
+    const failed = [];
+    for (const temp of staged) {
+      try { fs.rmSync(temp, { force: true }); }
+      catch (err) { failed.push(`${temp} (${err.message})`); }
+    }
+    return failed.length ? ` Leftover temp files: ${failed.join(', ')}.` : '';
+  };
+
   try { for (const w of writes) w.tmp = stage(w.p, w.body, w.mode); }
-  catch (e) { for (const w of writes) if (w.tmp) fs.rmSync(w.tmp, { force: true }); fail(`Could not write patched files (nothing was changed): ${e.message}`, JSON_OUT); }
+  catch (e) { fail(`Could not write patched files (nothing was changed): ${e.message}.${cleanup()}`, JSON_OUT); }
   const done = [];
-  try { for (const w of writes) { fs.renameSync(w.tmp, w.p); done.push(w); } }
+  try { for (const w of writes) { publish(w.tmp, w.p); done.push(w); } }
   catch (e) {
-    // Put back what was already replaced first, every file independently, then clean up temp files.
-    const notRestored = [], cleanup = [];
+    const notRestored = [];
     for (const w of done) {
-      try { fs.renameSync(stage(w.p, w.original, w.mode), w.p); }
+      try { publish(stage(w.p, w.original, w.mode), w.p); }
       catch (err) { notRestored.push(`${path.relative(root, w.p)} (${err.message})`); }
     }
-    for (const w of writes) if (!done.includes(w) && w.tmp) {
-      try { fs.rmSync(w.tmp, { force: true }); } catch (err) { cleanup.push(`${w.tmp} (${err.message})`); }
-    }
-    const extra = cleanup.length ? ` Leftover temp files: ${cleanup.join(', ')}.` : '';
+    const extra = cleanup();
     if (notRestored.length) fail(`Could not apply the patches: ${e.message}. Rollback was INCOMPLETE; these files still hold the patched version: ${notRestored.join(', ')}. Restore them with \`git diff\` / \`git checkout -- <file>\`.${extra}`, JSON_OUT);
     fail(`Could not apply the patches, so none were kept: ${e.message}.${extra}`, JSON_OUT);
   }
@@ -409,12 +431,13 @@ if (cmd === 'plan') {
   const p = data.progress;
   const attention = data.findings.filter((f) => f.resolution && !f.resolution.verified);
   const open = data.findings.filter((f) => !f.resolution);
-  if (JSON_OUT) { process.stdout.write(JSON.stringify({ ok: true, progress: p, attention: attention.map((f) => ({ id: f.id, missing: FIX_STEPS.filter(([k]) => !f.resolution.steps[k]?.ok).map(([k]) => k) })), open: open.map((f) => f.id), newIssues: data.newIssues, checklists: results }) + '\n'); process.exit(0); }
+  if (JSON_OUT) { process.stdout.write(JSON.stringify({ ok: true, progress: p, attention: attention.map((f) => ({ id: f.id, missing: FIX_STEPS.filter(([k]) => !f.resolution.steps[k]?.ok).map(([k]) => k) })), open: open.map((f) => f.id), newIssues: data.newIssues, newIssuesNotice: data.newIssuesNotice, checklists: results }) + '\n'); process.exit(0); }
   console.log(`CHECK    ${p.total} findings · ${p.verified} verified · ${p.attention} need attention · ${p.open} open${data.newIssues.length ? ` · ${data.newIssues.length} new issue(s) in your changes` : ''}`);
   for (const f of attention) for (const [k, label] of FIX_STEPS) if (!f.resolution.steps[k]?.ok) console.log(`!  ${f.id.padEnd(8)} ${label}: ${f.resolution.steps[k]?.detail || 'not checked yet'}`);
   for (const n of data.newIssues) console.log(`+  NEW      ${n.file}:${n.line}  ${n.severity.toUpperCase()}  ${n.title}  \`${n.code}\``);
   if (open.length) console.log(`○  open     ${open.map((f) => f.id).join(' ')}`);
-  if (!attention.length && !open.length && !data.newIssues.length) console.log('✔  Everything found in this scan is fixed and verified, and the changes introduced nothing new.');
+  if (data.newIssuesNotice) console.log(data.newIssuesNotice);
+  if (!attention.length && !open.length && !data.newIssues.length && !data.newIssuesNotice) console.log('✔  Everything found in this scan is fixed and verified, and the changes introduced nothing new.');
   console.log(`REPORT   updated live`);
 } else if (cmd === 'status') {
   const p = data.progress || applyResolutions(data, loadResolutions(dir, data.meta.scanId)).progress;

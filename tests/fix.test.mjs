@@ -4,7 +4,56 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileChangedSince, newIssues, snapshotWorkingTree } from '../skills/codehawk/scripts/lib/recheck.mjs';
 import { S, run, runFail, git, repo, readList, cands } from './helpers/fixture.mjs';
+
+test('working-tree evidence compares raw bytes from the scan', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-snapshot-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  git(dir, 'init', '-q');
+  fs.writeFileSync(path.join(dir, '.gitattributes'), '*.txt text\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.codehawk/\n');
+  const tracked = path.join(dir, 'tracked.txt');
+  fs.writeFileSync(tracked, 'one\n');
+  git(dir, 'add', 'tracked.txt');
+  fs.writeFileSync(tracked, 'one\r\n');
+  fs.writeFileSync(path.join(dir, 'préexisting.txt'), 'untracked at scan time');
+  const snapshot = snapshotWorkingTree(dir);
+  const compare = (file) => fileChangedSince(dir, null, file, { snapshot });
+  assert.equal(compare('tracked.txt').ok, false, 'Git normalization does not change the baseline');
+  assert.equal(compare('préexisting.txt').ok, false, 'untracked Unicode path is already in the baseline');
+
+  fs.writeFileSync(tracked, 'one\n');
+  assert.equal(compare('tracked.txt').ok, true, 'line-ending changes affect the raw bytes');
+  fs.unlinkSync(tracked);
+  assert.equal(compare('tracked.txt').ok, true, 'removal counts as a change');
+  fs.writeFileSync(path.join(dir, 'new.txt'), 'added after scanning');
+  assert.equal(compare('new.txt').ok, true);
+});
+
+test('closing sweep uses the working tree as scanned', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-closing-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  git(dir, 'init', '-q');
+  const tracked = path.join(dir, 'tracked.js');
+  const untracked = path.join(dir, 'untracked.js');
+  const flagged = 'eval(userInput);\n';
+  fs.writeFileSync(tracked, flagged);
+  git(dir, 'add', 'tracked.js');
+  git(dir, 'commit', '-qm', 'Initial source');
+  fs.writeFileSync(tracked, 'const value = 1;\n');
+  fs.writeFileSync(untracked, flagged);
+  const data = { meta: { snapshot: snapshotWorkingTree(dir) } };
+
+  assert.deepEqual(newIssues(dir, data), []);
+  fs.appendFileSync(untracked, 'const value = 2;\n');
+  assert.deepEqual(newIssues(dir, data), []);
+  fs.writeFileSync(tracked, flagged);
+  fs.appendFileSync(untracked, flagged);
+  assert.deepEqual(newIssues(dir, data).map(({ file, line }) => [file, line]).sort(),
+    [['tracked.js', 1], ['untracked.js', 3]]);
+  assert.equal(newIssues(dir, { meta: { snapshot: { version: 1, files: {} } } }), null);
+});
 
 test('fixes need a plan token, apply only matching code, and never commit', () => {
   const dir = repo();

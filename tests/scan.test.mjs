@@ -50,6 +50,40 @@ test('commit scan only reports changed lines, read from the commit', () => {
   assert.ok(!c.some((x) => x.rule === 'js-eval'));
 });
 
+test('scope and dependency inventory preserve Git-quoted paths', () => {
+  const dir = repo();
+  const readScope = () => JSON.parse(fs.readFileSync(path.join(dir, '.codehawk', 'scope.json'), 'utf8')).files;
+  const original = 'café notes.js';
+  const renamed = 'renamed café.js';
+  fs.writeFileSync(path.join(dir, original), 'const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n');
+  git(dir, 'add', '--', original);
+  git(dir, 'commit', '-qm', 'Add Unicode file');
+
+  run('target.mjs', dir, '--commit', 'HEAD');
+  assert.deepEqual(readScope().map(({ path, changed }) => [path, changed]), [[original, [[1, 4]]]]);
+
+  git(dir, 'mv', '--', original, renamed);
+  run('target.mjs', dir, '--working');
+  assert.ok(readScope().some((f) => f.path === renamed && f.oldPath === original && f.status === 'renamed'));
+
+  const untracked = 'untracked café.js';
+  fs.writeFileSync(path.join(dir, untracked), 'const x = 1;\n');
+  run('target.mjs', dir, '--working');
+  assert.ok(readScope().some((f) => f.path === untracked && f.changed === null));
+
+  const dependencyDir = path.join(dir, 'café dependencies');
+  fs.mkdirSync(dependencyDir);
+  fs.writeFileSync(path.join(dependencyDir, 'requirements.txt'), 'idna==3.7\n');
+  run('target.mjs', dir, '--repo');
+  assert.ok(readScope().some((f) => f.path === renamed));
+  run('scan.mjs', dir);
+  const scan = JSON.parse(fs.readFileSync(path.join(dir, '.codehawk', 'candidates.json'), 'utf8'));
+  assert.ok(scan.deps.lockfiles.some((lock) => lock.file === 'café dependencies/requirements.txt'));
+
+  run('target.mjs', dir, '--repo', '--at', 'HEAD');
+  assert.ok(readScope().some((f) => f.path === original));
+});
+
 test('flags prompt injection and invisible Unicode aimed at AI reviewers', () => {
   const dir = repo();
   const t = run('target.mjs', dir, '--repo');

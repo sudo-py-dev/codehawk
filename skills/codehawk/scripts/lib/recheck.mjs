@@ -8,11 +8,9 @@
 //             re-read is the check
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { RULES, QUALITY_RULES, COMMENT, entropy } from './rules.mjs';
-import { tryGit, shouldSkip, isBinaryPath, langOf, MAX_BYTES } from './common.mjs';
+import { tryGit, shouldSkip, isBinaryPath, langOf, MAX_BYTES, OUT_DIR } from './common.mjs';
 
 const BY_ID = new Map([...RULES, ...QUALITY_RULES].map((r) => [r.id, r]));
 
@@ -76,37 +74,73 @@ export function codeChanged(root, f) {
   return { ok: true, detail: f.endLine > f.line ? `lines ${f.line}–${f.endLine} differ from the scanned version` : `line ${f.line} differs from the scanned version` };
 }
 
-// A git tree of the working tree as it is right now (tracked, modified and untracked files,
-// .gitignore respected), built in a throwaway index so the user's own index is untouched.
-// Working-tree scans record it so a later --changed citation is compared with what was
-// actually scanned, not with HEAD. Null when git can't produce one.
-export function snapshotTree(root) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-idx-'));
-  const env = { ...process.env, GIT_INDEX_FILE: path.join(tmp, 'index') };
-  const g = (...a) => execFileSync('git', ['--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...a], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+// Hash raw bytes without reading beyond the source inspection limit.
+function snapshotBytes(root, file) {
   try {
-    g('add', '-A', '--', '.', ':(exclude).codehawk');
-    return g('write-tree').trim() || null;
-  } catch { return null; } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.size > MAX_BYTES ||
+        !fs.realpathSync(file).startsWith(root + path.sep)) return null;
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    try {
+      const opened = fs.fstatSync(fd);
+      if (!opened.isFile() || opened.size > MAX_BYTES) return null;
+      const bytes = Buffer.allocUnsafe(opened.size + 1);
+      let size = 0;
+      while (size < bytes.length) {
+        const count = fs.readSync(fd, bytes, size, bytes.length - size, null);
+        if (count === 0) break;
+        size += count;
+      }
+      if (size !== opened.size) return null;
+      return bytes.subarray(0, size);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (err) {
+    return err.code === 'ENOENT' ? undefined : null;
+  }
 }
 
-// For a fix that landed somewhere else (new middleware, a shared helper): does the cited file
-// really differ from the version that was scanned? Checked with git, not taken on trust.
-// `ref` is the scanned commit; for a working-tree scan pass `{ snapshot }` (from snapshotTree at
-// scan time) instead. A working-tree scan with no snapshot has no baseline: never verified.
+const digest = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+
+// Enumerate tracked and non-ignored untracked paths without staging repository files.
+// A null entry identifies a path whose contents could not be compared safely.
+export function snapshotWorkingTree(root) {
+  const paths = tryGit(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z');
+  if (paths == null) return null;
+  const realRoot = fs.realpathSync(root);
+  const files = Object.create(null);
+  const hits = Object.create(null);
+  for (const rel of new Set(paths.split('\0').filter(Boolean))) {
+    if (rel === OUT_DIR || rel.startsWith(OUT_DIR + '/')) continue;
+    const bytes = snapshotBytes(realRoot, path.join(realRoot, rel));
+    if (bytes === undefined) continue;
+    files[rel] = bytes === null ? null : digest(bytes);
+    if (bytes === null || bytes.includes(0) || shouldSkip(rel) || isBinaryPath(rel)) continue;
+    const counts = Object.create(null);
+    for (const { key } of closingHits(rel, bytes.toString('utf8'))) counts[key] = (counts[key] || 0) + 1;
+    if (Object.keys(counts).length) hits[rel] = counts;
+  }
+  return { version: 2, files, hits };
+}
+
+// Compare working-tree citations with the raw bytes captured at scan time.
+// Older reports containing a Git tree ID need a fresh scan for cross-file verification.
 export function fileChangedSince(root, ref, rel, { snapshot = null } = {}) {
   const p = path.resolve(root, rel);
   if (!p.startsWith(root + path.sep)) return { ok: false, detail: `${rel} is outside the repository` };
-  const exists = fs.existsSync(p);
-  if (!ref && snapshot) {
-    const blob = (tryGit(root, 'rev-parse', '--verify', '--quiet', `${snapshot}:${rel}`) || '').trim();
-    if (!blob) return exists ? { ok: true, detail: `${rel} is new since the scan` } : { ok: false, detail: `${rel} doesn't exist` };
-    if (!exists) return { ok: true, detail: `${rel} was removed` };
-    const now = (tryGit(root, 'hash-object', '--no-filters', '--', rel) || '').trim();
-    if (!now) return { ok: false, detail: `could not read ${rel}` };
-    return now !== blob ? { ok: true, detail: `${rel} changed since the scan` } : { ok: false, detail: `${rel} is unchanged since the scan` };
+  if (!ref && [1, 2].includes(snapshot?.version) && snapshot.files) {
+    const key = path.relative(root, p).split(path.sep).join('/');
+    const before = Object.hasOwn(snapshot.files, key) ? snapshot.files[key] : undefined;
+    const realRoot = fs.realpathSync(root);
+    const bytes = snapshotBytes(realRoot, path.join(realRoot, key));
+    const now = bytes == null ? bytes : digest(bytes);
+    if (before === null || now === null) return { ok: false, detail: `could not safely compare ${rel} with the scan` };
+    if (before === now) return { ok: false, detail: now === undefined ? `${rel} doesn't exist` : `${rel} is unchanged since the scan` };
+    return { ok: true, detail: before === undefined ? `${rel} is new since the scan` : now === undefined ? `${rel} was removed` : `${rel} changed since the scan` };
   }
   if (!ref) return { ok: false, detail: `no scan-time snapshot to compare ${rel} against (rescan to verify a fix in another file)` };
+  const exists = fs.existsSync(p);
   const base = ref;
   const tracked = tryGit(root, 'cat-file', '-e', `${base}:${rel}`) !== null;
   if (!tracked) return exists ? { ok: true, detail: `${rel} is new since the scan` } : { ok: false, detail: `${rel} doesn't exist` };
@@ -187,12 +221,50 @@ export function findSiblings(root, f, data) {
   return { files: files.list.length, hits, total, truncated, capped: files.capped, unread: unread.length };
 }
 
-// Issues the fixes may have introduced: every rule run over the lines added since the scan
-// (git diff against the scanned commit, plus new untracked files). Hits that match code the
-// review already saw (a finding or a dismissal) are left out.
+const closingRules = [...RULES, ...QUALITY_RULES].filter((rule) => rule.sev !== 'info');
+
+function* closingHits(file, text) {
+  const lang = langOf(file);
+  const rules = closingRules.filter((rule) => appliesTo(rule, file, lang));
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const rule = rules.find((candidate) => matches(candidate, line));
+    if (rule) yield {
+      key: digest(line.trim()),
+      issue: { file, line: i + 1, rule: rule.id, title: rule.title, severity: rule.sev, category: rule.cat, code: line.trim().slice(0, 160) },
+    };
+  }
+}
+
+function workingTreeIssues(root, snapshot) {
+  if (snapshot?.version !== 2 || !snapshot.files || !snapshot.hits) return null;
+  const paths = tryGit(root, 'ls-files', '-co', '--exclude-standard', '-z');
+  if (paths == null) return null;
+  const realRoot = fs.realpathSync(root);
+  const out = [];
+  for (const file of new Set(paths.split('\0').filter(Boolean))) {
+    if (shouldSkip(file) || isBinaryPath(file)) continue;
+    const before = Object.hasOwn(snapshot.files, file) ? snapshot.files[file] : undefined;
+    if (before === null) continue;
+    const bytes = snapshotBytes(realRoot, path.join(realRoot, file));
+    if (!bytes || bytes.includes(0) || digest(bytes) === before) continue;
+    const baseline = Object.hasOwn(snapshot.hits, file) ? snapshot.hits[file] : {};
+    const remaining = new Map(Object.entries(baseline));
+    for (const { key, issue } of closingHits(file, bytes.toString('utf8'))) {
+      const count = remaining.get(key) || 0;
+      if (count) remaining.set(key, count - 1);
+      else out.push(issue);
+      if (out.length === 50) return out;
+    }
+  }
+  return out;
+}
+
+// Working-tree reports use scan-time rule-hit counts. Commit-backed reports use Git hunks.
 export function newIssues(root, data) {
-  const base = data.meta.ref || data.meta.head;
-  if (!base) return [];
+  const base = data.meta.ref;
+  if (!base) return workingTreeIssues(root, data.meta.snapshot);
   // How many occurrences of each reviewed line the review saw, per file.
   const known = new Map();
   const note = (file, code) => { const k = codeKey(file, code); known.set(k, (known.get(k) || 0) + 1); };
@@ -200,7 +272,6 @@ export function newIssues(root, data) {
   for (const d of data.dismissed || []) for (const i of d.items) note(i.file, i.code);
   const tracked = (tryGit(root, 'diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', base, '--') || '').split('\0').filter(Boolean);
   const untracked = (tryGit(root, 'ls-files', '-o', '--exclude-standard', '-z') || '').split('\0').filter((p) => p && !p.startsWith('.codehawk/'));
-  const all = [...RULES, ...QUALITY_RULES].filter((r) => r.sev !== 'info');
   const out = [];
   for (const rel of [...new Set([...tracked, ...untracked])].filter((p) => !shouldSkip(p) && !isBinaryPath(p)).slice(0, 500)) {
     const text = readSafe(root, rel);
@@ -213,7 +284,7 @@ export function newIssues(root, data) {
       for (const m of d.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) { const a = +m[1], n = m[2] === undefined ? 1 : +m[2]; if (n) ranges.push([a, a + n - 1]); }
     }
     const lang = langOf(rel);
-    const rs = all.filter((r) => appliesTo(r, rel, lang));
+    const rs = closingRules.filter((r) => appliesTo(r, rel, lang));
     // A reviewed line is suppressed only while the file holds no more copies of it than were
     // there at scan time; an extra copy is a new occurrence and gets reported.
     const baseText = ranges ? tryGit(root, 'show', '--no-textconv', `${base}:${rel}`) : null;

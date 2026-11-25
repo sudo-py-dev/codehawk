@@ -32,9 +32,9 @@ export const isTestPath = (p) => /(^|\/)(tests?|__tests__|spec|specs|fixtures?|m
 /** Every file in the scanned version of the repo (git object, index + untracked, or plain walk). */
 export function listAllFiles(root, ref) {
   let out = null;
-  if (ref) out = tryGit(root, 'ls-tree', '-r', '--name-only', ref);
-  else out = tryGit(root, 'ls-files', '--cached', '--others', '--exclude-standard');
-  if (out != null) return out.split('\n').filter(Boolean);
+  if (ref) out = tryGit(root, 'ls-tree', '-r', '--name-only', '-z', ref);
+  else out = tryGit(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z');
+  if (out != null) return out.split('\0').filter(Boolean);
   const list = [];
   const walk = (dir, depth) => {
     if (depth > 12) return;

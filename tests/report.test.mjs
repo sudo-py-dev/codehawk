@@ -3,7 +3,37 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { outDir, writeOutput } from '../skills/codehawk/scripts/lib/common.mjs';
 import { run, runFail, git, repo, readList, cands } from './helpers/fixture.mjs';
+
+test('review output rejects a symlinked directory and file', { skip: process.platform === 'win32' }, (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-output-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const root = path.join(dir, 'checkout');
+  const outside = path.join(dir, 'outside');
+  fs.mkdirSync(root);
+  fs.mkdirSync(outside);
+  const output = path.join(root, '.codehawk');
+  fs.symlinkSync(outside, output, 'dir');
+  assert.throws(() => outDir(root), /Unsafe CodeHawk output path/);
+  assert.deepEqual(fs.readdirSync(outside), []);
+
+  fs.unlinkSync(output);
+  assert.equal(outDir(root), output);
+  const sentinel = path.join(outside, 'sentinel.txt');
+  fs.writeFileSync(sentinel, 'original');
+  const report = path.join(output, 'report.html');
+  fs.symlinkSync(sentinel, report);
+  assert.throws(() => writeOutput(report, 'replacement'), /Unsafe CodeHawk output path/);
+  assert.equal(fs.readFileSync(sentinel, 'utf8'), 'original');
+
+  fs.unlinkSync(report);
+  writeOutput(report, 'first review');
+  writeOutput(report, 'second review');
+  assert.equal(fs.readFileSync(report, 'utf8'), 'second review');
+  assert.deepEqual(fs.readdirSync(output).sort(), ['.gitignore', 'report.html']);
+});
 
 test('build refuses unreviewed candidates, then renders html, sarif and markdown', () => {
   const dir = repo();

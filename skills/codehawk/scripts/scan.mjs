@@ -11,13 +11,13 @@
 //   node scan.mjs <root> [--focus all|security|quality] [--nitpicks] [--offline] [--json] [--max 800]
 import path from 'node:path';
 import fs from 'node:fs';
-import { parseArgs, outDir, readJson, writeJson, readAt, tryGit, fail, SEVERITIES, CATEGORIES, kindOf, toolVersion } from './lib/common.mjs';
+import { parseArgs, outDir, readJson, writeJson, writeOutput, readAt, tryGit, fail, SEVERITIES, CATEGORIES, kindOf, toolVersion } from './lib/common.mjs';
 import { RULES, QUALITY_RULES, HOTSPOT_PATH, COMMENT, entropy } from './lib/rules.mjs';
 import { structure, duplicates, behavior } from './lib/metrics.mjs';
 import { RULE_CWE } from './lib/taxonomy.mjs';
 import { listAllFiles, isDepFile, isTestPath as isTestDir, parseDepFile, purlOf, cyclonedx } from './lib/deps.mjs';
 import { lookup, keyOf, compareVersions } from './lib/osv.mjs';
-import { snapshotTree } from './lib/recheck.mjs';
+import { snapshotWorkingTree } from './lib/recheck.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const root = path.resolve(args._[0] || '.');
@@ -300,7 +300,7 @@ writeJson(path.join(dir, 'candidates.json'), {
   scanId: scope.scanId || scope.generatedAt || null,
   scope: { mode: scope.mode, label: scope.label, ref: scope.ref },
   // Working-tree scans: what the tree looked like now, so fix.mjs can tell what changed since.
-  snapshot: scope.ref ? null : snapshotTree(root),
+  snapshot: scope.ref ? null : snapshotWorkingTree(root),
   generatedAt: new Date().toISOString(),
   totalFiles: scope.files.length, unreadable, truncated,
   candidates,
@@ -380,7 +380,7 @@ for (const kind of ['security', 'quality']) {
   }
 }
 if (!candidates.length) w.push(``, `_No rule matched. Rely on the manual read in step 1._`);
-fs.writeFileSync(path.join(dir, 'worksheet.md'), w.join('\n') + '\n');
+writeOutput(path.join(dir, 'worksheet.md'), w.join('\n') + '\n');
 
 const bySev = {};
 for (const c of candidates) bySev[c.severity] = (bySev[c.severity] || 0) + 1;
