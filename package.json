@@ -1,6 +1,6 @@
 {
   "name": "codehawk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Security review plugin for Claude Code",
   "type": "module",
