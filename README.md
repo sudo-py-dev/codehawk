@@ -188,4 +188,4 @@ Each rule is a pattern plus a *hint* telling the reviewer what to verify. Rules 
 
 ## License
 
-MIT
+[MIT](LICENSE)
