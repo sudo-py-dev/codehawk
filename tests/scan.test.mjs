@@ -185,6 +185,48 @@ test('show.mjs reads the scanned version and refuses anything else', () => {
   assert.ok(!fs.existsSync(path.join(dir, 'x')), '--output must never write a file');
 });
 
+test('viewer rejects invalid stored refs in ordinary view', () => {
+  const dir = repo();
+  run('target.mjs', dir, '--repo');
+  const file = path.join(dir, '.codehawk', 'scope.json');
+  const scope = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...scope, ref: 'invalid-ref' }));
+  assert.throws(() => execFileSync('node', [path.join(S, 'show.mjs'), dir, 'src/server.js'], { stdio: 'pipe' }), /unexpected ref/);
+});
+
+test('scope stores a display URL without transport credentials', () => {
+  const dir = repo();
+  git(dir, 'config', 'remote.origin.url', 'https://fixture:example@invalid.example/team/tool.git?q=example#unused');
+  run('target.mjs', dir, '--repo');
+  const scope = JSON.parse(fs.readFileSync(path.join(dir, '.codehawk', 'scope.json')));
+  assert.equal(scope.remote, 'https://invalid.example/team/tool');
+  assert.doesNotMatch(JSON.stringify(scope), /fixture:example|q=example|#unused/);
+});
+
+test('dependency inventory identifies individual unreadable and malformed files', () => {
+  const dir = repo();
+  for (const [folder, contents] of [['empty', '{"packages":{}}'], ['invalid', '{'], ['large', ' '.repeat(1_500_001)]]) {
+    fs.mkdirSync(path.join(dir, folder));
+    fs.writeFileSync(path.join(dir, folder, 'package-lock.json'), contents);
+  }
+  run('target.mjs', dir, '--repo');
+  const { deps } = run('scan.mjs', dir, '--offline');
+  assert.deepEqual(deps.inventoryIssues.map((i) => i.file).sort(), ['invalid/package-lock.json', 'large/package-lock.json']);
+  assert.ok(deps.packages > 0);
+});
+
+test('deletion-only reviews preserve base context', () => {
+  const dir = repo();
+  const rel = 'src/lib/auth.js';
+  const before = fs.readFileSync(path.join(dir, rel), 'utf8').split('\n')[0];
+  fs.unlinkSync(path.join(dir, rel));
+  assert.equal(run('target.mjs', dir, '--working').files, 1);
+  run('scan.mjs', dir);
+  assert.match(fs.readFileSync(path.join(dir, '.codehawk', 'worksheet.md'), 'utf8'), /src\/lib\/auth\.js.*file deleted/);
+  const shown = execFileSync('node', [path.join(S, 'show.mjs'), dir, rel, '--to', '1'], { encoding: 'utf8' });
+  assert.equal(shown.trimEnd(), `1  ${before}`.trimEnd());
+});
+
 // ── Dependencies: known vulnerabilities via a local mock of the OSV.dev API ──
 
 test('behavior checks: late size limits, fixed-count parser skips, edited allow-lists, regression pass', () => {

@@ -51,12 +51,19 @@ export function listAllFiles(root, ref) {
 }
 
 /** Parse one dependency file. Returns [{ name, version, ecosystem, line, dev? }]. */
-export function parseDepFile(rel, text, { includeOccurrences = false } = {}) {
+export function parseDepFile(rel, text, { includeOccurrences = false, onIssue } = {}) {
   const hit = PARSERS.find(([re]) => re.test(rel));
-  if (!hit || text == null) return [];
+  if (!hit) return [];
+  if (text == null) {
+    onIssue?.('unreadable or above the size limit');
+    return [];
+  }
   const [, ecosystem, fn] = hit;
   let pkgs = [];
-  try { pkgs = fn(text, ecosystem) || []; } catch { pkgs = []; }
+  try { pkgs = fn(text, ecosystem) || []; } catch {
+    onIssue?.('invalid dependency file');
+    return [];
+  }
   const seen = new Set();
   return pkgs
     .filter((p) => p.name && p.version && /^[\w.+~:-]+$/.test(p.version))

@@ -76,7 +76,9 @@ const findings = (doc.findings || []).map((f, i) => {
   else owasp = null;
   const dep = linked.find((c) => c.dep)?.dep || null;
   const isMeta = /^\(.*\)$/.test(f.file || '');
-  const text = f.file && !isMeta ? readAt(root, scope.ref, f.file) : null;
+  const deleted = scope.files.some((file) => file.path === f.file && file.status === 'deleted');
+  const sourceRef = deleted ? scope.base : scope.ref;
+  const text = f.file && !isMeta ? readAt(root, sourceRef, f.file) : null;
   if (isMeta) { /* PR description or commit message: no source lines to show */ }
   else if (f.file && text == null) errors.push(`${where}: can't read ${f.file}${scope.ref ? ` at ${scope.ref.slice(0, 7)}` : ''}`);
   else if (f.file && !inScope.has(f.file) && !(cand.deps?.lockfiles || []).some((l) => l.file === f.file)) warnings.push(`${where}: ${f.file} is outside the scanned scope (kept, shown as context)`);
@@ -100,8 +102,8 @@ const findings = (doc.findings || []).map((f, i) => {
     // What `fix.mjs resolve` re-runs on the fixed file to verify the fix.
     checks: linked.map(({ rule, line, code }) => ({ rule, line, code })), fileLines: lines.length || null,
     snippet, fix,
-    link: scope.remote && /github\.com|gitlab|bitbucket/.test(scope.remote) && (scope.ref || scope.head) && !(scope.ref == null && scope.mode !== 'repo')
-      ? `${scope.remote}/blob/${scope.ref || scope.head}/${f.file}#L${line}${endLine > line ? `-L${endLine}` : ''}` : null,
+    link: scope.remote && /github\.com|gitlab|bitbucket/.test(scope.remote) && (sourceRef || scope.head) && !(sourceRef == null && scope.mode !== 'repo')
+      ? `${scope.remote}/blob/${sourceRef || scope.head}/${f.file}#L${line}${endLine > line ? `-L${endLine}` : ''}` : null,
   };
 });
 
@@ -230,7 +232,7 @@ const depNote = !deps ? null
   : null;
 const readableFiles = cand.fileStats?.length ?? 0;
 const reviewedInScope = (cand.fileStats || []).filter((f) => reviewedSet.has(f.path)).length;
-const coverageNotes = [];
+const coverageNotes = (deps?.inventoryIssues || []).map(({ file, reason }) => `Dependency inventory incomplete: ${file} (${reason}).`);
 if (deps?.status === 'partial') coverageNotes.push(`OSV lookup incomplete for ${deps.incomplete} coordinates. Retained ${deps.advisories} advisory matches.`);
 if (deps?.truncated) coverageNotes.push(`OSV matched ${deps.truncated} advisories whose details were unavailable or exceeded the detail limit. Their IDs are included, but severity and fix guidance may be incomplete.`);
 if (reviewedInScope < readableFiles) coverageNotes.push(`Manual review recorded for ${reviewedInScope} of ${readableFiles} readable files in scope. Remaining files received automated triage only or were skipped.`);

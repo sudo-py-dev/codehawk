@@ -137,14 +137,17 @@ export function writeJson(file, data) {
 }
 
 /** Read a file either from the working tree (ref null) or from a git object. */
+export const isObjectId = (value) => typeof value === 'string' && /^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/i.test(value);
 const blobCache = new Map();
 export function readAt(root, ref, rel) {
   const key = `${ref || ''}:${rel}`;
   if (blobCache.has(key)) return blobCache.get(key);
   let text = null;
   try {
-    if (ref) text = git(root, 'show', '--no-textconv', `${ref}:${rel}`);
-    else {
+    if (ref != null) {
+      if (!isObjectId(ref)) return null;
+      text = git(root, 'cat-file', 'blob', `${ref}:${rel}`);
+    } else {
       const p = path.join(root, rel);
       const real = fs.realpathSync(p), base = fs.realpathSync(root);
       const st = fs.statSync(real);

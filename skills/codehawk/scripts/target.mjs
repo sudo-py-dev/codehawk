@@ -36,7 +36,7 @@ function parseDiff(text) {
     const file = { path: currentPath, oldPath, status, changed: [], additions: 0, deletions: 0, binary: false };
     // Git formats a type change as a deletion followed by an addition.
     if (code === 'T') {
-      files.push({ ...file, status: 'deleted', changed: [] });
+      files.push({ ...file, status: 'deleted', changed: [], typeChangeDeletion: true });
       file.status = 'added';
     }
     files.push(file);
@@ -65,7 +65,7 @@ function parseDiff(text) {
     }
   }
   if (section + 1 !== files.length) fail('Git diff path records and patch sections do not match.', JSON_OUT);
-  return files.filter((file) => !file.binary && file.status !== 'deleted');
+  return files.filter((file) => !file.binary && !file.typeChangeDeletion);
 }
 
 const DIFF_OPTIONS = ['--raw', '-z', '-p', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames', '--submodule=short'];
@@ -100,6 +100,20 @@ function repoSlug(url) {
     .replace(/^ssh:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\//, 'https://$1/');
   const m = u.match(/^https?:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/([^/]+)\/([^/?#]+?)(?:\.git)?(?:[/?#].*)?$/i);
   return m ? `${m[1]}/${m[2]}/${m[3]}`.toLowerCase() : null;
+}
+
+function displayRemote(raw) {
+  if (!raw) return null;
+  const scp = !raw.includes('://') && raw.match(/^(?:[^@/]+@)?([\w.-]+):(.+)$/);
+  try {
+    const url = new URL(scp ? `ssh://${scp[1]}/${scp[2]}` : raw);
+    if (!['http:', 'https:', 'ssh:', 'git:'].includes(url.protocol) || !url.hostname) return null;
+    const web = ['http:', 'https:'].includes(url.protocol);
+    const base = web ? `${url.protocol}//${url.host}` : `https://${url.hostname}`;
+    return base + url.pathname.replace(/\.git\/?$/, '');
+  } catch {
+    return null;
+  }
 }
 
 let scope;
@@ -283,7 +297,7 @@ if (scope.mode !== 'repo' && scope.mode !== 'working') {
 
 scope.root = root;
 scope.repoName = path.basename(inGit ? (tryGit(root, 'rev-parse', '--show-toplevel') || root).trim() : root);
-scope.remote = inGit ? (tryGit(root, 'remote', 'get-url', 'origin') || '').trim().replace(/\.git$/, '').replace(/^git@([^:]+):/, 'https://$1/') || null : null;
+scope.remote = inGit ? displayRemote((tryGit(root, 'config', '--get', 'remote.origin.url') || '').trim()) : null;
 scope.head = head;
 scope.trust = assessTrust();
 scope.generatedAt = new Date().toISOString();

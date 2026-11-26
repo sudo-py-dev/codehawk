@@ -50,6 +50,7 @@ let truncated = 0;
 let unreadable = 0;
 
 for (const f of scope.files) {
+  if (f.status === 'deleted') continue; // The regression checklist reviews these against the base.
   const text = readAt(root, scope.ref, f.path);
   if (text == null) { unreadable++; continue; }
   const lines = text.split(/\r?\n/);
@@ -164,8 +165,12 @@ async function scanDependencies() {
   const depFiles = all.filter(isDepFile);
   const inventory = [];
   const lockfiles = [];
+  const inventoryIssues = [];
   for (const file of depFiles) {
-    const pkgs = parseDepFile(file, readAt(root, scope.ref, file), { includeOccurrences: scope.mode !== 'repo' }).map((p) => ({ ...p, file, test: isTestDir(file) }));
+    const pkgs = parseDepFile(file, readAt(root, scope.ref, file), {
+      includeOccurrences: scope.mode !== 'repo',
+      onIssue: (reason) => inventoryIssues.push({ file, reason }),
+    }).map((p) => ({ ...p, file, test: isTestDir(file) }));
     if (!pkgs.length) continue;
     lockfiles.push({ file, ecosystem: pkgs[0].ecosystem, packages: pkgs.length });
     inventory.push(...pkgs);
@@ -200,7 +205,7 @@ async function scanDependencies() {
     };
     toCheck = inventory.filter(touches);
   }
-  const summary = { status: 'ok', lockfiles, packages: inventory.length, checked: 0, vulnerable: 0, advisories: 0, noLockfile, scope: scope.mode === 'repo' || args['refresh-deps'] ? 'all' : 'changed' };
+  const summary = { status: 'ok', inventoryIssues, lockfiles, packages: inventory.length, checked: 0, vulnerable: 0, advisories: 0, noLockfile, scope: scope.mode === 'repo' || args['refresh-deps'] ? 'all' : 'changed' };
   const vulns = [];
   if (!toCheck.length) summary.status = inventory.length ? 'nothing-changed' : 'none';
   else if (OFFLINE) summary.status = 'offline';
@@ -238,6 +243,11 @@ async function scanDependencies() {
     }
   }
   const sbom = cyclonedx({ packages: inventory, vulns, projectName: path.basename(root), toolVersion: toolVersion(), ref: scope.ref });
+  if (inventoryIssues.length) {
+    sbom.metadata.properties = [...(sbom.metadata.properties || []), ...inventoryIssues.map(({ file, reason }) => ({
+      name: 'codehawk:inventory:omission', value: `${file}: ${reason}`,
+    }))];
+  }
   writeJson(path.join(dir, 'sbom.cdx.json'), sbom);
   summary.sbom = path.join(dir, 'sbom.cdx.json');
   return summary;
@@ -395,7 +405,7 @@ const bySev = {};
 for (const c of candidates) bySev[c.severity] = (bySev[c.severity] || 0) + 1;
 const byCat = {};
 for (const c of candidates) byCat[c.category] = (byCat[c.category] || 0) + 1;
-const out = { ok: true, candidates: candidates.length, truncated, bySeverity: bySev, byCategory: byCat, readList: readList.length, worksheet: path.join(dir, 'worksheet.md'), deps: { status: deps.status, packages: deps.packages || 0, checked: deps.checked || 0, vulnerable: deps.vulnerable || 0, sbom: deps.sbom } };
+const out = { ok: true, candidates: candidates.length, truncated, bySeverity: bySev, byCategory: byCat, readList: readList.length, worksheet: path.join(dir, 'worksheet.md'), deps: { status: deps.status, inventoryIssues: deps.inventoryIssues || [], packages: deps.packages || 0, checked: deps.checked || 0, vulnerable: deps.vulnerable || 0, sbom: deps.sbom } };
 if (JSON_OUT) process.stdout.write(JSON.stringify(out) + '\n');
 else {
   console.log(`CANDIDATES  ${candidates.length}${truncated ? ` (+${truncated} suppressed)` : ''}  ${SEVERITIES.filter((s) => bySev[s]).map((s) => `${s} ${bySev[s]}`).join(' · ')}`);
@@ -411,9 +421,14 @@ else {
 function depsLine(d) {
   const files = d.lockfiles?.length ? `${d.packages} package${d.packages === 1 ? '' : 's'} pinned in ${d.lockfiles.length} lockfile${d.lockfiles.length === 1 ? '' : 's'}` : '';
   const sbom = d.sbom ? ` SBOM: \`${path.relative(root, d.sbom)}\`.` : '';
+  const warning = (d.inventoryIssues || []).map(({ file, reason }) => `Inventory incomplete: ${file} (${reason}).`).join(' ');
+  return [warning, lookupSummary(d, files, sbom)].filter(Boolean).join(' ');
+}
+
+function lookupSummary(d, files, sbom) {
   switch (d.status) {
     case 'skipped': return `Not checked: ${d.note}`;
-    case 'none': return `No lockfiles found, so no dependency versions to check.${sbom}`;
+    case 'none': return `No pinned package versions were inventoried.${sbom}`;
     case 'nothing-changed': return `${files}; this change doesn't touch any pinned version, so none were looked up.${sbom}`;
     case 'offline': return `${files}. **Not checked for known vulnerabilities (--offline).** Say so in notes.${sbom}`;
     case 'partial': return `${files}. OSV lookup incomplete for ${d.incomplete} package coordinates. Retained ${d.advisories} advisory matches. ${sbom}`;
