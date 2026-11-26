@@ -13,7 +13,7 @@
 //   - only accepts Host 127.0.0.1/localhost on its own port (blocks DNS rebinding) and rejects
 //     cross-site requests;
 //   - read-only: GET/HEAD for report.html, live.js and an event stream; nothing else is served
-//     (not findings.json, not your source), and nothing can be written through it;
+//     (not findings.json or your source). A separate authenticated POST stops the preview;
 //   - stops by itself after --idle minutes (default 20) with no report open.
 // It detaches and returns at once; .codehawk/serve.json records it so a second call reuses it.
 import path from 'node:path';
@@ -34,16 +34,27 @@ const report = path.join(dir, 'report.html');
 const say = (obj, text) => { if (JSON_OUT) process.stdout.write(JSON.stringify(obj) + '\n'); else console.log(text); };
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-function healthy(st) {
+function healthy(st, stop = false) {
+  if (!Number.isInteger(st?.port) || st.port < 1 || st.port > 65535 ||
+      typeof st.token !== 'string' || !/^[0-9a-f]{32}$/.test(st.token)) return Promise.resolve(false);
   return new Promise((resolve) => {
     // Healthy = our server: it knows the recorded secret and reports the recorded pid.
-    const req = http.get({ host: '127.0.0.1', port: st.port, path: `/${st.token}/health`, timeout: 800 }, (res) => {
+    const req = http.request({
+      host: '127.0.0.1', port: st.port,
+      path: `/${st.token}/${stop ? 'shutdown' : 'health'}`,
+      method: stop ? 'POST' : 'GET', timeout: 800,
+    }, (res) => {
+      if (stop) {
+        res.resume();
+        return resolve(res.statusCode === 204);
+      }
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (c) => { body += c; });
       res.on('end', () => resolve(res.statusCode === 200 && body.trim() === `ok ${st.pid}`));
     });
     req.on('error', () => resolve(false));
+    req.end();
     req.on('timeout', () => { req.destroy(); resolve(false); });
   });
 }
@@ -51,11 +62,9 @@ function healthy(st) {
 // ── stop ──
 if (args.stop) {
   const st = readJson(stateFile, null);
-  // Signal only a process that proves it is our server (it answers on the recorded port with the
-  // recorded secret); a stale record whose pid now belongs to something else is just removed.
-  if (st?.pid && st.port && st.token && alive(st.pid) && await healthy(st)) { try { process.kill(st.pid, 'SIGTERM'); } catch {} }
+  const stopped = st && await healthy(st) && await healthy(st, true);
   fs.rmSync(stateFile, { force: true });
-  say({ ok: true, stopped: !!st }, st ? 'STOPPED  report server' : 'No report server was running.');
+  say({ ok: true, stopped: !!st }, stopped ? 'STOPPED  report server' : 'No report server accepted shutdown.');
   process.exit(0);
 }
 
@@ -107,7 +116,6 @@ function serve() {
     if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return deny(res, 403, 'Forbidden host');
     if (req.headers['sec-fetch-site'] === 'cross-site') return deny(res, 403, 'Cross-site request refused');
     if (req.headers.origin && req.headers.origin !== `http://${host}`) return deny(res, 403, 'Cross-origin request refused');
-    if (req.method !== 'GET' && req.method !== 'HEAD') { res.setHeader('Allow', 'GET, HEAD'); return deny(res, 405, 'Read-only'); }
     let url;
     try { url = new URL(req.url, `http://${host}`); } catch { return deny(res, 400, 'Invalid URL'); }
     const parts = url.pathname.split('/');
@@ -115,6 +123,14 @@ function serve() {
     if (parts.length !== 3 || given.length !== token.length || !crypto.timingSafeEqual(given, Buffer.from(token))) return deny(res, 404, 'Not found');
     lastActive = Date.now();
     const name = parts[2];
+    if (name === 'shutdown' && req.method === 'POST') {
+      if (req.headers.origin || req.headers['sec-fetch-site']) return deny(res, 403, 'CLI only');
+      res.writeHead(204, { ...HEAD, Connection: 'close' });
+      res.end(shutdown);
+      return;
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD') { res.setHeader('Allow', 'GET, HEAD'); return deny(res, 405, 'Read-only'); }
+    if (name === 'shutdown') { res.setHeader('Allow', 'POST'); return deny(res, 405, 'Use POST'); }
     if (name === 'health') { res.writeHead(200, { ...HEAD, 'Content-Type': 'text/plain' }); return res.end(`ok ${process.pid}\n`); }
     if (name === 'report.html' || name === '') {
       if (name === '') { res.writeHead(302, { ...HEAD, Location: `/${token}/report.html` }); return res.end(); }

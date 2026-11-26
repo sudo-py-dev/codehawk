@@ -52,6 +52,18 @@ function makeFix(start, before, fixCode) {
   return { start, before, after };
 }
 
+function sourceRemote(remote) {
+  try {
+    const url = new URL(remote);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    if (!/(^|\.)(github\.com|gitlab\.com|bitbucket\.org)$/.test(url.hostname)) return null;
+    return url.origin + url.pathname.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+const sourceBase = sourceRemote(scope.remote);
 const findings = (doc.findings || []).map((f, i) => {
   const where = `findings[${i}]${f.title ? ` "${f.title}"` : ''}`;
   for (const k of ['title', 'severity', 'category', 'file', 'line', 'description', 'fix']) if (f[k] === undefined || f[k] === '') errors.push(`${where}: missing "${k}"`);
@@ -102,8 +114,8 @@ const findings = (doc.findings || []).map((f, i) => {
     // What `fix.mjs resolve` re-runs on the fixed file to verify the fix.
     checks: linked.map(({ rule, line, code }) => ({ rule, line, code })), fileLines: lines.length || null,
     snippet, fix,
-    link: scope.remote && /github\.com|gitlab|bitbucket/.test(scope.remote) && (sourceRef || scope.head) && !(sourceRef == null && scope.mode !== 'repo')
-      ? `${scope.remote}/blob/${sourceRef || scope.head}/${f.file}#L${line}${endLine > line ? `-L${endLine}` : ''}` : null,
+    link: sourceBase && (sourceRef || scope.head) && !(sourceRef == null && scope.mode !== 'repo')
+      ? `${sourceBase}/blob/${sourceRef || scope.head}/${f.file}#L${line}${endLine > line ? `-L${endLine}` : ''}` : null,
   };
 });
 

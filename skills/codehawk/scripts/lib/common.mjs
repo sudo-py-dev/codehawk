@@ -146,7 +146,11 @@ export function readAt(root, ref, rel) {
   try {
     if (ref != null) {
       if (!isObjectId(ref)) return null;
-      text = git(root, 'cat-file', 'blob', `${ref}:${rel}`);
+      const object = `${ref}:${rel}`;
+      const size = git(root, 'cat-file', '-s', object).trim();
+      if (/^\d+$/.test(size) && Number(size) <= MAX_BYTES) {
+        text = git(root, 'cat-file', 'blob', object);
+      }
     } else {
       const p = path.join(root, rel);
       const real = fs.realpathSync(p), base = fs.realpathSync(root);

@@ -455,7 +455,7 @@ function renderDetail() {
     <button class="btn ghost back" id="back">${icon('back')}Findings</button>
     <div class="d-head"><span class="sev-badge ${f.severity}"><span class="d"></span>${sevLabel(f)}</span><span class="d-id">${esc(f.id)}</span>${r ? resTag(r, true) : ''}</div>
     <h3>${esc(f.title)}</h3>
-    <div class="d-loc">${icon('file')}${f.link ? `<a href="${esc(f.link)}" target="_blank" rel="noopener">${esc(f.file)}:${f.line}${f.endLine > f.line ? '–' + f.endLine : ''}</a>` : `${esc(f.file)}:${f.line}${f.endLine > f.line ? '–' + f.endLine : ''}`}</div>
+    <div class="d-loc">${icon('file')}${f.link && safeUrl(f.link) !== '#' ? `<a href="${esc(safeUrl(f.link))}" target="_blank" rel="noopener">${esc(f.file)}:${f.line}${f.endLine > f.line ? '–' + f.endLine : ''}</a>` : `${esc(f.file)}:${f.line}${f.endLine > f.line ? '–' + f.endLine : ''}`}</div>
     <div class="meta-chips">
       <span class="mchip ${f.kind === 'quality' ? 'kind-q' : ''}">${f.kind === 'quality' ? 'Code quality' : 'Security'}</span>
       <span class="mchip">${esc(f.categoryLabel)}</span>
