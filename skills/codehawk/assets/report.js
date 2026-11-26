@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const D = JSON.parse(document.getElementById('codehawk-data').textContent);
-const SEVS = ['critical', 'high', 'medium', 'low', 'info'];
+const SEVS = ['critical', 'high', 'medium', 'low', 'info', 'unknown'];
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (n) => `<svg class="i" aria-hidden="true"><use href="#i-${n}"/></svg>`;
@@ -141,7 +141,7 @@ function hero() {
   facts.push(`<time datetime="${esc(D.meta.generatedAt)}" title="${esc(new Date(D.meta.generatedAt).toLocaleString())}">${esc(relTime(D.meta.generatedAt))}</time>`);
   $('#facts').innerHTML = facts.join('');
 
-  $('#sev-grid').innerHTML = SEVS.map((s) => `
+  $('#sev-grid').innerHTML = SEVS.filter((s) => s !== 'unknown' || D.counts[s]).map((s) => `
     <button class="sev-tile" style="${sevVar(s)}" data-sev="${s}" aria-pressed="false" ${D.counts[s] ? '' : 'disabled'} title="Filter ${s} (${SEVS.indexOf(s) + 1})">
       <span class="n num ${D.counts[s] ? '' : 'zero'}">${D.counts[s]}</span><span class="l">${s}</span>
     </button>`).join('');
@@ -546,7 +546,7 @@ function advisories(d) {
     <td class="mono"><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener">${esc(a.cves[0] || a.id)}</a>${a.cves[0] && a.cves[0] !== a.id ? `<br><small class="muted">${esc(a.id)}</small>` : ''}</td>
     <td><span class="sev-badge ${esc(a.severity)}" style="${sevVar(a.severity)}"><span class="d"></span>${esc(a.malicious ? 'malicious' : a.severity)}</span></td>
     <td class="cv" title="${esc(a.cvss?.vector || '')}">${a.cvss?.score != null ? a.cvss.score.toFixed(1) : a.cvss ? 'v' + esc(a.cvss.version) : '–'}</td>
-    <td class="mono">${a.malicious ? '–' : a.fixed ? esc(a.fixed) : '<span class="muted">no fix yet</span>'}</td>
+    <td class="mono">${a.malicious ? '–' : a.fixed ? esc(a.fixed) : '<span class="muted">fixed release unverified</span>'}</td>
     <td class="sum">${esc(a.summary || '')}</td></tr>`).join('');
   return `<div class="d-section"><h4>${icon('shield')}Known vulnerabilities in <span class="mono">${esc(d.name)}@${esc(d.version)}</span>${d.dev ? ' <small class="muted">(dev dependency)</small>' : ''}</h4>
     <table class="adv"><thead><tr><th>Advisory</th><th>Severity</th><th>CVSS</th><th>Fixed in</th><th>Summary</th></tr></thead><tbody>${rows}</tbody></table>
@@ -571,7 +571,7 @@ function standards() {
     : `<p class="muted-note">None of the findings fall in the 2024 CWE Top 25.</p>`;
   let depHtml = '';
   if (dp && dp.status !== 'skipped') {
-    const st = { ok: '', offline: 'Not checked for known vulnerabilities: the scan ran with --offline.', error: `The OSV.dev lookup failed (${dp.error || 'network error'}), so known vulnerabilities were not checked.`, none: 'No lockfiles found.', 'nothing-changed': 'This change does not touch any pinned dependency version.' }[dp.status] || '';
+    const st = { ok: '', partial: `OSV lookup incomplete for ${dp.incomplete} coordinates. Retained ${dp.advisories} advisory matches.`, offline: 'Not checked for known vulnerabilities: the scan ran with --offline.', error: `The OSV.dev lookup failed (${dp.error || 'network error'}), so known vulnerabilities were not checked.`, none: 'No lockfiles found.', 'nothing-changed': 'This change does not touch any pinned dependency version.' }[dp.status] || '';
     depHtml = `<div class="std-sub">Dependencies</div>
       <div class="dep-stats"><span><b>${dp.packages || 0}</b> pinned in ${dp.lockfiles?.length || 0} lockfile${dp.lockfiles?.length === 1 ? '' : 's'}</span>${dp.status === 'ok' ? `<span><b>${dp.checked}</b> checked${dp.scope === 'changed' ? ' (changed)' : ''}</span><span><b>${dp.vulnerable}</b> vulnerable</span><span><b>${dp.advisories}</b> advisories</span>` : ''}</div>
       ${st ? `<p class="${dp.status === 'offline' || dp.status === 'error' ? 'dep-warn' : 'muted-note'}">${esc(st)}</p>` : ''}
@@ -715,7 +715,7 @@ function markdown() {
   }
   const block = (f) => {
     L.push(`<details><summary>${lab(f)} <b>${esc(f.title)}</b> — <code>${esc(f.file)}:${f.line}</code>${f.cwe ? ' · ' + f.cwe : ''}${f.owasp ? ' · OWASP ' + f.owasp.slice(0, 3) : ''}</summary>`, '', f.description, '');
-    if (f.dep?.advisories?.length) L.push(...f.dep.advisories.slice(0, 10).map((a) => `- [${a.cves[0] || a.id}](${a.url})${a.cvss?.score != null ? ' · CVSS ' + a.cvss.score : ''} · ${a.severity}${a.malicious ? ' · malicious' : a.fixed ? ' · fixed in ' + a.fixed : ' · no fix yet'}`), '');
+    if (f.dep?.advisories?.length) L.push(...f.dep.advisories.slice(0, 10).map((a) => `- [${a.cves[0] || a.id}](${a.url})${a.cvss?.score != null ? ' · CVSS ' + a.cvss.score : ''} · ${a.severity}${a.malicious ? ' · malicious' : a.fixed ? ' · fixed in ' + a.fixed : ' · fixed release unverified'}`), '');
     if (f.impact) L.push(`**${f.kind === 'quality' ? 'Why it matters' : 'Impact'}:** ${f.impact}`, '');
     L.push(`**${f.kind === 'quality' ? 'Suggestion' : 'Fix'}:** ${f.fixText}`, '');
     if (f.fix) L.push('```diff', ...f.fix.before.map((l) => '- ' + l), ...f.fix.after.map((l) => '+ ' + l), '```', '');

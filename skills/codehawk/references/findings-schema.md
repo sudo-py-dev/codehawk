@@ -97,3 +97,5 @@ Use a number from zero through the severity maximum. For older findings without 
 | **info** | Worth knowing, not a vulnerability | Areas to watch, missing rate limiting where impact is unclear |
 
 **Confidence** is separate: `high` = you traced input to sink; `medium` = likely, a step is unverified; `low` = depends on things outside the code you could see.
+
+For dependency matches without a supported severity assessment, use `unknown` and a zero score deduction. The finding remains open for review.

@@ -16,7 +16,7 @@ import { RULES, QUALITY_RULES, HOTSPOT_PATH, COMMENT, entropy } from './lib/rule
 import { structure, duplicates, behavior } from './lib/metrics.mjs';
 import { RULE_CWE } from './lib/taxonomy.mjs';
 import { listAllFiles, isDepFile, isTestPath as isTestDir, parseDepFile, purlOf, cyclonedx } from './lib/deps.mjs';
-import { lookup, keyOf, compareVersions } from './lib/osv.mjs';
+import { lookup, keyOf } from './lib/osv.mjs';
 import { snapshotWorkingTree } from './lib/recheck.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -161,7 +161,7 @@ const deps = FOCUS === 'quality' ? { status: 'skipped', note: 'Not run with --fo
 
 async function scanDependencies() {
   const all = listAllFiles(root, scope.ref);
-  const depFiles = all.filter(isDepFile).slice(0, 300);
+  const depFiles = all.filter(isDepFile);
   const inventory = [];
   const lockfiles = [];
   for (const file of depFiles) {
@@ -176,7 +176,7 @@ async function scanDependencies() {
 
   // Whole repo: check everything. Change scans: only packages on lines the change touched.
   let toCheck = inventory;
-  if (scope.mode !== 'repo') {
+  if (scope.mode !== 'repo' && !args['refresh-deps']) {
     const changed = new Map(scope.files.filter((f) => isDepFile(f.path) && f.status !== 'deleted').map((f) => [f.path, f.changed]));
     const startsByFile = new Map();
     for (const p of inventory) {
@@ -200,13 +200,22 @@ async function scanDependencies() {
     };
     toCheck = inventory.filter(touches);
   }
-  const summary = { status: 'ok', lockfiles, packages: inventory.length, checked: toCheck.length, vulnerable: 0, advisories: 0, noLockfile, scope: scope.mode === 'repo' ? 'all' : 'changed' };
+  const summary = { status: 'ok', lockfiles, packages: inventory.length, checked: 0, vulnerable: 0, advisories: 0, noLockfile, scope: scope.mode === 'repo' || args['refresh-deps'] ? 'all' : 'changed' };
   const vulns = [];
   if (!toCheck.length) summary.status = inventory.length ? 'nothing-changed' : 'none';
   else if (OFFLINE) summary.status = 'offline';
   else {
     try {
+      summary.queriedAt = new Date().toISOString();
       const res = await lookup(toCheck);
+      if (res.error) {
+        summary.status = res.completed || res.advisories ? 'partial' : 'error';
+        summary.error = res.error;
+        summary.incomplete = res.incomplete;
+      }
+      summary.checked = res.completed;
+      summary.failedDetails = res.failedDetails;
+      summary.deferredDetails = res.deferredDetails;
       if (res.truncated) summary.truncated = res.truncated;
       const RANK = Object.fromEntries(SEVERITIES.map((s, i) => [s, i]));
       let sourceFile, sourceLines;
@@ -237,8 +246,8 @@ async function scanDependencies() {
 function depCandidate(p, advs, sourceLine) {
   const malicious = advs.some((a) => a.malicious);
   const ids = advs.map((a) => a.cves[0] || a.id);
-  const fixes = advs.map((a) => a.fixed).filter(Boolean).sort(compareVersions);
-  const fixTo = fixes.length ? fixes[fixes.length - 1] : null;
+  const fixes = advs.map((a) => a.fixed).filter(Boolean);
+  const fixTo = fixes.length === advs.length && new Set(fixes).size === 1 ? fixes[0] : null;
   const unfixed = advs.filter((a) => !a.fixed && !a.malicious).length;
   const line = sourceLine || `${p.name} ${p.version}`;
   const listed = advs.slice(0, 6).map((a) => `${a.cves[0] || a.id}${a.cvss?.score != null ? ` CVSS ${a.cvss.score}` : ''} ${a.severity}${a.summary ? `: ${a.summary.slice(0, 110)}` : ''}${a.malicious ? '' : a.fixed ? ` (fixed in ${a.fixed})` : ' (no fix identified)'}`).join('; ');
@@ -249,7 +258,7 @@ function depCandidate(p, advs, sourceLine) {
     file: p.file, line: p.line, col: 1, code: line.trim().slice(0, 220),
     hint: malicious
       ? `OSV lists ${p.name}@${p.version} as malicious (${ids.join(', ')}). Confirm the name and version, then report it as critical: remove it and rotate credentials on every machine that installed it.`
-      : `${listed}${advs.length > 6 ? `; +${advs.length - 6} more` : ''}. Check: is ${p.name} shipped or only a build/test tool${p.dev ? ' (the lockfile marks it dev-only)' : ''}, and is the vulnerable feature reachable from this code? Severity comes from the advisory; adjust it to the real exposure. Fix: ${fixTo ? `evaluate ${fixTo} as an upgrade and recheck the exact version` : 'no fixed release identified for the affected range'}${unfixed && fixTo ? ` (${unfixed} advisor${unfixed === 1 ? 'y' : 'ies'} without an identified fix)` : ''}.`,
+      : `${listed}${advs.length > 6 ? `; +${advs.length - 6} more` : ''}. Check: is ${p.name} shipped or only a build/test tool${p.dev ? ' (the lockfile marks it dev-only)' : ''}, and is the vulnerable feature reachable from this code? Severity comes from the advisory; adjust it to the real exposure. Fix: ${fixTo ? `evaluate ${fixTo} as an upgrade and recheck the exact version` : 'review each advisory for applicable fixed releases'}${unfixed && fixTo ? ` (${unfixed} advisor${unfixed === 1 ? 'y' : 'ies'} without an identified fix)` : ''}.`,
     test: p.test || undefined,
     dep: { name: p.name, version: p.version, ecosystem: p.ecosystem, purl: purlOf(p), dev: !!p.dev, fixTo, malicious, advisories: advs.slice(0, 25) },
   };
@@ -407,6 +416,7 @@ function depsLine(d) {
     case 'none': return `No lockfiles found, so no dependency versions to check.${sbom}`;
     case 'nothing-changed': return `${files}; this change doesn't touch any pinned version, so none were looked up.${sbom}`;
     case 'offline': return `${files}. **Not checked for known vulnerabilities (--offline).** Say so in notes.${sbom}`;
+    case 'partial': return `${files}. OSV lookup incomplete for ${d.incomplete} package coordinates. Retained ${d.advisories} advisory matches. ${sbom}`;
     case 'error': return `${files}. **The OSV.dev lookup failed (${d.error}), so known vulnerabilities were not checked.** Say so in notes.${sbom}`;
     default: return `${files}; checked ${d.checked}${d.scope === 'changed' ? ' changed' : ''} against OSV.dev: **${d.vulnerable} vulnerable** (${d.advisories} advisor${d.advisories === 1 ? 'y' : 'ies'})${d.vulnerable ? ', listed under 2a as `vulnerable-dependency`' : ''}.${d.truncated ? ` Details for ${d.truncated} advisories were unavailable or skipped due to the detail limit.` : ''}${sbom}`;
   }

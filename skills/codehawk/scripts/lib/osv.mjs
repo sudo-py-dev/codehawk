@@ -28,9 +28,11 @@ export async function lookup(pkgs, { timeoutMs = 30000 } = {}) {
   const unique = [];
   const seen = new Set();
   for (const p of pkgs) { const k = keyOf(p); if (!seen.has(k)) { seen.add(k); unique.push(p); } }
-  if (!unique.length) return { byKey, advisories: 0 };
+  if (!unique.length) return { byKey, completed: 0, incomplete: 0, failedDetails: 0, deferredDetails: 0, advisories: 0 };
 
   const idsByKey = new Map();
+  let completed = 0;
+  let error;
   for (let i = 0; i < unique.length; i += BATCH) {
     let pending = unique.slice(i, i + BATCH).map((p) => ({
       key: keyOf(p),
@@ -38,8 +40,14 @@ export async function lookup(pkgs, { timeoutMs = 30000 } = {}) {
       tokens: new Set(),
     }));
     while (pending.length) {
-      const { results } = await post(`${API}/querybatch`, { queries: pending.map(({ query }) => query) }, timeoutMs);
-      if (!Array.isArray(results) || results.length !== pending.length) throw new Error('OSV returned an incomplete batch');
+      let results;
+      try {
+        ({ results } = await post(`${API}/querybatch`, { queries: pending.map(({ query }) => query) }, timeoutMs));
+        if (!Array.isArray(results) || results.length !== pending.length) throw new Error('OSV returned an incomplete batch');
+      } catch (cause) {
+        error = cause.message;
+        break;
+      }
       pending = pending.filter(({ key, query, tokens }, j) => {
         const { vulns = [], next_page_token: token } = results[j] || {};
         if (vulns.length) {
@@ -47,8 +55,8 @@ export async function lookup(pkgs, { timeoutMs = 30000 } = {}) {
           for (const { id } of vulns) ids.add(id);
           idsByKey.set(key, ids);
         }
-        if (!token) return false;
-        if (tokens.has(token)) throw new Error('OSV repeated a pagination token');
+        if (!token) { completed++; return false; }
+        if (tokens.has(token)) { error = 'OSV repeated a pagination token'; return false; }
         tokens.add(token);
         query.page_token = token;
         return true;
@@ -72,7 +80,7 @@ export async function lookup(pkgs, { timeoutMs = 30000 } = {}) {
     if (!list) continue;
     byKey.set(keyOf(p), dedupe([...list].map((id) => summarize(details.get(id) || { id }, p))));
   }
-  return { byKey, advisories: allIds.length, truncated: allIds.length - details.size };
+  return { byKey, completed, error, incomplete: unique.length - completed, failedDetails: ids.length - details.size, deferredDetails: allIds.length - ids.length, advisories: allIds.length, truncated: allIds.length - details.size };
 }
 
 export const keyOf = (p) => `${p.ecosystem}|${normName(p)}|${p.version}`;
@@ -87,7 +95,8 @@ function dedupe(list) {
     if (i < 0) { out.push(a); continue; }
     const b = out[i];
     // Keep the record with a CVSS score (or the GHSA one), and merge everything it's known as.
-    const [keep, other] = !b.cvss?.score && a.cvss?.score ? [a, b] : [b, a];
+    const preferNew = (b.cvss?.score == null && a.cvss?.score != null) || (b.severity === 'unknown' && a.severity !== 'unknown');
+    const [keep, other] = preferNew ? [a, b] : [b, a];
     const aliases = [...new Set([...keep.aliases, other.id, ...other.aliases])].filter((x) => x !== keep.id);
     out[i] = { ...keep, aliases, cves: [...new Set([...keep.cves, ...other.cves])], cwes: [...new Set([...keep.cwes, ...other.cwes])], fixed: keep.fixed || other.fixed };
   }
@@ -105,14 +114,14 @@ export function summarize(v, pkg) {
   if (!cvss) { const v4 = (v.severity || []).find((s) => s.type === 'CVSS_V4'); if (v4) cvss = { version: '4.0', score: null, vector: v4.score }; }
   const label = (v.database_specific?.severity || (v.affected || []).map((a) => a.database_specific?.severity || a.ecosystem_specific?.severity).find(Boolean) || '').toString().toLowerCase();
   const malicious = /^MAL-/.test(v.id);
-  const severity = malicious ? 'critical' : cvss?.score != null ? severityOf(cvss.score) : { critical: 'critical', high: 'high', moderate: 'medium', medium: 'medium', low: 'low' }[label] || 'medium';
+  const severity = malicious ? 'critical' : cvss?.score != null ? severityOf(cvss.score) : { critical: 'critical', high: 'high', moderate: 'medium', medium: 'medium', low: 'low' }[label] || 'unknown';
   const cwes = (v.database_specific?.cwe_ids || []).filter((c) => /^CWE-\d+$/.test(c));
   const fixed = fixedVersion(v, pkg);
   const advisoryUrl = (v.references || []).find((r) => r.type === 'ADVISORY')?.url || `https://osv.dev/vulnerability/${encodeURIComponent(v.id)}`;
   return {
     id: v.id, aliases, cves, summary: (v.summary || (v.details || '').split('\n')[0] || '').slice(0, 300),
     severity, cvss, cwes, fixed: fixed.version, fixedAll: fixed.all, malicious,
-    published: v.published || null, url: advisoryUrl,
+    modified: v.modified || null, published: v.published || null, url: advisoryUrl,
   };
 }
 
@@ -127,6 +136,11 @@ function fixedVersion(v, pkg) {
     if (pkg && (!target || target.ecosystem !== pkg.ecosystem || normName(target) !== normName(pkg))) continue;
     for (const range of affected.ranges || []) {
       if (!['SEMVER', 'ECOSYSTEM'].includes(range.type)) continue;
+      // Only compare releases whose ordering we can establish for this range.
+      const versions = [pkg?.version, ...(range.events || []).flatMap((e) => [e.introduced, e.fixed])].filter(Boolean);
+      const simple = versions.every((s) => /^\d+(?:\.\d+)*$/.test(s));
+      const semver = versions.every((s) => s === '0' || /^v?\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(s));
+      const comparable = range.type === 'SEMVER' ? semver : simple;
       let inInterval = false;
       for (const event of range.events || []) {
         if (event.introduced != null) {
@@ -135,7 +149,7 @@ function fixedVersion(v, pkg) {
         }
         if (event.fixed) {
           all.add(event.fixed);
-          if (inInterval && (!pkg || compareVersions(pkg.version, event.fixed) < 0)) matching.add(event.fixed);
+          if (comparable && inInterval && (!pkg || compareVersions(pkg.version, event.fixed) < 0)) matching.add(event.fixed);
         }
         inInterval = false;
       }

@@ -295,6 +295,9 @@ export function cyclonedx({ packages, vulns = [], projectName, toolVersion, ref 
   const vmap = new Map();
   for (const { pkg, adv } of vulns) {
     const ref_ = purlOf(pkg) || `${pkg.ecosystem}:${pkg.name}@${pkg.version}`;
+    const recommendation = adv.fixed
+      ? `Advisory lists ${adv.fixed} as fixed for this affected range. Verify the version you install.`
+      : adv.malicious ? 'Remove this package and rotate any credentials on machines that installed it.' : undefined;
     const e = vmap.get(adv.id) || {
       id: adv.id,
       source: { name: 'OSV', url: `https://osv.dev/vulnerability/${encodeURIComponent(adv.id)}` },
@@ -302,11 +305,12 @@ export function cyclonedx({ packages, vulns = [], projectName, toolVersion, ref 
       ratings: [adv.cvss?.score != null ? { score: adv.cvss.score, severity: adv.severity, method: 'CVSSv31', vector: adv.cvss.vector } : { severity: adv.severity, method: 'other' }],
       cwes: adv.cwes.map((c) => +c.replace(/\D/g, '')),
       description: adv.summary || undefined,
-      recommendation: adv.fixed ? `Advisory lists ${adv.fixed} as fixed for this affected range. Verify the version you install.` : adv.malicious ? 'Remove this package and rotate any credentials on machines that installed it.' : undefined,
+      recommendation,
       advisories: [{ url: adv.url }],
       published: adv.published || undefined,
       affects: [],
     };
+    if (e.recommendation !== recommendation) delete e.recommendation;
     if (!e.affects.some((x) => x.ref === ref_)) e.affects.push({ ref: ref_ });
     vmap.set(adv.id, e);
   }

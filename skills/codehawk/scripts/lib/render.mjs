@@ -16,7 +16,7 @@ const ASSETS = path.join(here, '..', '..', 'assets');
 
 // ── scoring ──
 const CM = { high: 1, medium: 0.75, low: 0.5 };
-const SEC_W = { critical: 30, high: 15, medium: 6, low: 2, info: 0 };
+const SEC_W = { critical: 30, high: 15, medium: 6, low: 2, info: 0, unknown: 0 };
 const QUAL_W = { critical: 25, high: 12, medium: 4, low: 1.5, info: 0.25 };
 export const toGrade = (n) => (n >= 90 ? 'A' : n >= 80 ? 'B' : n >= 65 ? 'C' : n >= 45 ? 'D' : 'F');
 export const deductionLimit = (f) => (f.kind === 'quality' ? QUAL_W : SEC_W)[f.severity];
@@ -30,7 +30,7 @@ export function scoreFindings(findings) {
 
 function verdictOf(findings) {
   if (findings.some((f) => f.severity === 'critical' || (f.kind === 'security' && f.severity === 'high' && f.confidence !== 'low'))) return 'block';
-  return findings.some((f) => ['high', 'medium'].includes(f.severity)) ? 'review' : 'pass';
+  return findings.some((f) => ['high', 'medium', 'unknown'].includes(f.severity)) ? 'review' : 'pass';
 }
 
 // ── resolutions ──
@@ -137,7 +137,7 @@ function summaryMarkdown(data) {
     if (f.cwe) md.push(`<sub>[${f.cwe}${f.cweName ? ` ${escapeHtml(f.cweName)}` : ''}](${cweUrl(f.cwe)})${f.top25 ? ` · CWE Top 25 #${f.top25}` : ''}${f.owasp ? ` · OWASP ${f.owasp} ${f.owaspName}` : ''}</sub>`, '');
     if (f.dep?.advisories?.length) {
       md.push(`**Advisories for \`${f.dep.name}@${f.dep.version}\`:**`, '');
-      for (const a of f.dep.advisories.slice(0, 10)) md.push(`- [${a.cves[0] || a.id}](${a.url})${a.cvss?.score != null ? ` · CVSS ${a.cvss.score}` : ''} · ${a.severity}${a.malicious ? ' · malicious' : a.fixed ? ` · fixed in ${a.fixed}` : ' · no fix yet'}${a.summary ? ` — ${a.summary.replace(/\n/g, ' ')}` : ''}`);
+      for (const a of f.dep.advisories.slice(0, 10)) md.push(`- [${a.cves[0] || a.id}](${a.url})${a.cvss?.score != null ? ` · CVSS ${a.cvss.score}` : ''} · ${a.severity}${a.malicious ? ' · malicious' : a.fixed ? ` · fixed in ${a.fixed}` : ' · fixed release unverified'}${a.summary ? ` — ${a.summary.replace(/\n/g, ' ')}` : ''}`);
       if (f.dep.advisories.length > 10) md.push(`- …and ${f.dep.advisories.length - 10} more`);
       md.push('');
     }
@@ -159,6 +159,7 @@ function summaryMarkdown(data) {
     const t25 = (standards?.top25 || []).map((t) => `${t.cwe} (#${t.rank})`);
     const dl = !deps ? null
       : deps.status === 'ok' ? `${deps.checked} dependenc${deps.checked === 1 ? 'y' : 'ies'} checked against OSV.dev, ${deps.vulnerable} vulnerable`
+      : deps.status === 'partial' ? `**dependency lookup incomplete** (${deps.incomplete} unfinished coordinates, ${deps.advisories} retained matches)`
       : deps.status === 'offline' ? '**dependencies not checked for CVEs (offline)**'
       : deps.status === 'error' ? '**dependency CVE check failed**'
       : deps.status === 'nothing-changed' ? 'no dependency versions changed'

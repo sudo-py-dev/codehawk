@@ -5,7 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { summarize } from '../skills/codehawk/scripts/lib/osv.mjs';
-import { parseDepFile } from '../skills/codehawk/scripts/lib/deps.mjs';
+import { cyclonedx, parseDepFile } from '../skills/codehawk/scripts/lib/deps.mjs';
 import { S, run, runEnv, git, repo, readList, cands } from './helpers/fixture.mjs';
 
 const ADV = {
@@ -213,4 +213,68 @@ test('change scans keep the changed lockfile occurrence of a repeated package ve
     assert.match(matches[0].code, /cors\/node_modules\/lodash/);
     assert.equal(matches[0].dep.version, '4.17.20');
   } finally { osv.close(); }
+});
+
+test('unfinished OSV pages retain unrated matches through report generation', async () => {
+  const osv = await mockOsv((q) => q.package.name === 'lodash'
+    ? { vulns: [{ id: 'TEST-UNRATED' }], next_page_token: 'stuck' } : {});
+  try {
+    const dir = repo();
+    run('target.mjs', dir, '--repo');
+    await runEnv({ CODEHAWK_OSV_URL: osv.url }, 'scan.mjs', dir);
+    const d = depsOf(dir);
+    assert.equal(d.status, 'partial');
+    assert.equal(d.incomplete, 1);
+    assert.equal(d.failedDetails, 1);
+    const match = cands(dir).find((c) => c.dep);
+    assert.equal(match.severity, 'unknown');
+    fs.writeFileSync(path.join(dir, '.codehawk/findings.json'), JSON.stringify({
+      reviewed: readList(dir),
+      findings: [{ ...match, candidates: [match.id], description: 'Package matched the advisory.', fix: 'Assess the advisory.' }],
+      dismissed: [{ candidates: cands(dir).filter((c) => c.id !== match.id).map((c) => c.id), reason: 'checked by hand in this test fixture' }],
+    }));
+    const report = run('build.mjs', dir);
+    const sarif = JSON.parse(fs.readFileSync(report.sarif)).runs[0];
+    assert.equal(sarif.results[0].properties['security-severity'], undefined);
+    assert.match(fs.readFileSync(report.summary, 'utf8'), /lookup incomplete/i);
+  } finally { osv.close(); }
+});
+
+test('refresh on a source-only change checks dependency files beyond the first 300', async () => {
+  const osv = await mockOsv();
+  try {
+    const dir = repo();
+    for (let n = 0; n < 301; n++) {
+      fs.writeFileSync(path.join(dir, `requirements-${n}.txt`), 'sample==1.0\n');
+    }
+    fs.writeFileSync(path.join(dir, 'zzz-requirements.txt'), 'PyYAML==5.3\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-qm', 'add pinned packages');
+    fs.writeFileSync(path.join(dir, 'note.txt'), 'source-only change');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-qm', 'edit note');
+    run('target.mjs', dir, '--commit', 'HEAD');
+    await runEnv({ CODEHAWK_OSV_URL: osv.url }, 'scan.mjs', dir, '--refresh-deps');
+    assert.equal(depsOf(dir).scope, 'all');
+    assert.ok(cands(dir).some((c) => c.file === 'zzz-requirements.txt' && c.dep));
+  } finally { osv.close(); }
+});
+
+test('shared SBOM advice is omitted when release branches have different fixes', () => {
+  const target = { name: 'library', ecosystem: 'npm' };
+  const record = { id: 'TEST-BRANCHES', affected: [{ package: target, ranges: [{ type: 'SEMVER', events: [
+    { introduced: '1.0.0' }, { fixed: '1.5.0' }, { introduced: '2.0.0' }, { fixed: '2.5.0' },
+  ] }] }] };
+  const packages = ['1.1.0', '2.1.0'].map((version) => ({ ...target, version, file: 'package-lock.json' }));
+  const vulns = packages.map((pkg) => ({ pkg, adv: summarize(record, pkg) }));
+  const [v] = cyclonedx({ packages, vulns }).vulnerabilities;
+  assert.equal(v.affects.length, 2);
+  assert.equal(v.recommendation, undefined);
+});
+
+test('complex ecosystem ranges keep the match without guessing a fixed version', () => {
+  const target = { name: 'library', ecosystem: 'PyPI' };
+  const record = { id: 'TEST-RC', affected: [{ package: target, ranges: [{ type: 'ECOSYSTEM',
+    events: [{ introduced: '0' }, { fixed: '1.0rc10' }] }] }] };
+  assert.equal(summarize(record, { ...target, version: '1.0rc2' }).fixed, null);
 });

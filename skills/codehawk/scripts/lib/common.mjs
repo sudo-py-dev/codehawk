@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const OUT_DIR = '.codehawk';
-export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
+export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'unknown'];
 export const CATEGORIES = {
   injection: 'Injection',
   xss: 'Cross-site scripting',

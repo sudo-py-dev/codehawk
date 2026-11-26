@@ -55,6 +55,7 @@ function makeFix(start, before, fixCode) {
 const findings = (doc.findings || []).map((f, i) => {
   const where = `findings[${i}]${f.title ? ` "${f.title}"` : ''}`;
   for (const k of ['title', 'severity', 'category', 'file', 'line', 'description', 'fix']) if (f[k] === undefined || f[k] === '') errors.push(`${where}: missing "${k}"`);
+  if (f.severity === 'unknown' && f.category !== 'vulnerable-dependency') errors.push(`${where}: unknown severity is reserved for dependency advisories awaiting assessment`);
   if (f.severity && !SEVERITIES.includes(f.severity)) errors.push(`${where}: severity must be one of ${SEVERITIES.join(', ')}`);
   if (f.category && !CATEGORIES[f.category]) errors.push(`${where}: unknown category "${f.category}" (use one of ${Object.keys(CATEGORIES).join(', ')})`);
   if (f.confidence && !CONF.includes(f.confidence)) errors.push(`${where}: confidence must be high, medium or low`);
@@ -206,7 +207,7 @@ if (errors.length) {
 
 const fileMap = new Map();
 for (const f of findings) {
-  const e = fileMap.get(f.file) || { path: f.file, count: 0, worst: 'info', bySev: {} };
+  const e = fileMap.get(f.file) || { path: f.file, count: 0, worst: f.severity, bySev: {} };
   e.count++; e.bySev[f.severity] = (e.bySev[f.severity] || 0) + 1;
   if (SEV_RANK[f.severity] < SEV_RANK[e.worst]) e.worst = f.severity;
   fileMap.set(f.file, e);
@@ -230,6 +231,7 @@ const depNote = !deps ? null
 const readableFiles = cand.fileStats?.length ?? 0;
 const reviewedInScope = (cand.fileStats || []).filter((f) => reviewedSet.has(f.path)).length;
 const coverageNotes = [];
+if (deps?.status === 'partial') coverageNotes.push(`OSV lookup incomplete for ${deps.incomplete} coordinates. Retained ${deps.advisories} advisory matches.`);
 if (deps?.truncated) coverageNotes.push(`OSV matched ${deps.truncated} advisories whose details were unavailable or exceeded the detail limit. Their IDs are included, but severity and fix guidance may be incomplete.`);
 if (reviewedInScope < readableFiles) coverageNotes.push(`Manual review recorded for ${reviewedInScope} of ${readableFiles} readable files in scope. Remaining files received automated triage only or were skipped.`);
 if (cand.unreadable) coverageNotes.push(`${cand.unreadable} file(s) could not be read as source.`);
@@ -257,11 +259,11 @@ const data = {
 };
 
 // ── report.sarif ── (SARIF 2.1.0 with CWE and OWASP Top 10 taxonomies, for GitHub code scanning)
-const LEVEL = { critical: 'error', high: 'error', medium: 'warning', low: 'note', info: 'note' };
+const LEVEL = { critical: 'error', high: 'error', medium: 'warning', low: 'note', info: 'note', unknown: 'warning' };
 const sarifLevel = (f) => (f.kind === 'quality' && f.severity !== 'critical' ? (f.severity === 'high' ? 'warning' : 'note') : LEVEL[f.severity]);
 const SSEV = { critical: 9.5, high: 8.0, medium: 5.5, low: 3.0, info: 1.0 };
 // GitHub ranks security alerts by security-severity: use the advisory's CVSS score when there is one.
-const secSev = (f) => { const cv = Math.max(...(f.dep?.advisories || []).map((a) => a.cvss?.score ?? -1)); return (cv >= 0 ? cv : SSEV[f.severity]).toFixed(1); };
+const secSev = (f) => { const cv = Math.max(...(f.dep?.advisories || []).map((a) => a.cvss?.score ?? -1)); return (cv >= 0 ? cv : SSEV[f.severity])?.toFixed(1); };
 const cweNum = (c) => String(c).replace(/\D/g, '');
 const owaspUrl = (id) => `https://owasp.org/Top10/${id.replace(':', '_')}-${OWASP_2021[id].replace(/ /g, '_').replace('Server-Side_Request_Forgery', 'Server-Side_Request_Forgery_%28SSRF%29')}/`;
 const ruleIds = new Map();
@@ -285,7 +287,7 @@ for (const f of findings) {
     });
   } else if (f.kind === 'security') {
     const r = ruleIds.get(rid);
-    if (+secSev(f) > +r.properties['security-severity']) r.properties['security-severity'] = secSev(f);
+    if (+secSev(f) > +(r.properties['security-severity'] ?? -1)) r.properties['security-severity'] = secSev(f);
   }
   f._rule = rid;
 }
