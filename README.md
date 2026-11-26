@@ -245,3 +245,9 @@ Each rule is a pattern plus a *hint* telling the reviewer what to verify. Rules 
 ## License
 
 [MIT](LICENSE)
+
+### Maintainer queue
+
+Ask CodeHawk to prioritize open issues and PRs, or use `/codehawk:triage` on hosts that expose plugin commands. The checkout needs a github.com origin and an authenticated GitHub CLI. Open `.codehawk/triage.html` to search, filter, and inspect the reasons behind each score. Use a PR's GitHub URL to start a full CodeHawk review.
+
+For direct use, run `node skills/codehawk/scripts/triage.mjs . --limit 100` from the plugin checkout, replacing `.` with the repository to triage.
