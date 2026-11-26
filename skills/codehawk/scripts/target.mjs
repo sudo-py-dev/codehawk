@@ -236,22 +236,37 @@ function assessTrust() {
   const reasons = [];
   let level = 'trusted';
   if (!inGit) return { level: 'unknown', reasons: ['Not a git repository, so where this code came from is unknown.'] };
-  const ghRepo = scope.remote ? trySh('gh', ['repo', 'view', '--json', 'nameWithOwner,visibility,isFork,viewerPermission'], { cwd: root }) : null;
-  const me = ghRepo ? (trySh('gh', ['api', 'user', '--jq', '.login'], { cwd: root }) || '').trim() : '';
-  if (ghRepo) {
-    const r = JSON.parse(ghRepo);
-    if (!['ADMIN', 'MAINTAIN', 'WRITE'].includes(r.viewerPermission)) { level = 'untrusted'; reasons.push(`You don't have write access to ${r.nameWithOwner}: this is someone else's code.`); }
-    if (r.visibility === 'PUBLIC') { if (level === 'trusted') level = 'caution'; reasons.push(`${r.nameWithOwner} is public: anyone can propose text that ends up in it.`); }
+  // Use the configured origin, even when Git rewrites its transport URL.
+  const slug = repoSlug(tryGit(root, 'config', '--get', 'remote.origin.url'));
+  const [host, owner, repo] = slug?.split('/') || [];
+  const metadata = slug && trySh('gh', ['repo', 'view', '--repo', slug, '--json', 'nameWithOwner,visibility,viewerPermission'], { cwd: root });
+  let details;
+  try { details = metadata && JSON.parse(metadata); } catch { /* unavailable metadata */ }
+  const matchesOrigin = details?.nameWithOwner?.toLowerCase() === (owner + '/' + repo);
+  const me = matchesOrigin ? (trySh('gh', ['api', '--hostname', host, 'user', '--jq', '.login'], { cwd: root }) || '').trim() : '';
+  const owned = matchesOrigin && Boolean(me) && me.toLowerCase() === owner;
+  const canWrite = matchesOrigin && ['ADMIN', 'MAINTAIN', 'WRITE'].includes(details.viewerPermission);
+  const visibility = matchesOrigin ? details.visibility : undefined;
+  if (matchesOrigin) {
+    if (!owned && !canWrite) {
+      level = details.viewerPermission ? 'untrusted' : 'unknown';
+      reasons.push(details.viewerPermission ? `GitHub reports no write access to ${details.nameWithOwner} for the authenticated account.` : `GitHub did not return your access level for ${details.nameWithOwner}.`);
+    }
+    if (visibility === 'PUBLIC') {
+      if (level === 'trusted') level = 'caution';
+      const access = owned ? ` You are signed in as the owner (@${me}).` : canWrite ? ' Your account has write access.' : '';
+      reasons.push(`${details.nameWithOwner} is public.${access} Public contributions may contain instructions aimed at reviewers.`);
+    }
   } else if (scope.remote) {
-    level = 'unknown'; reasons.push(`Couldn't verify who controls ${scope.remote} (\`gh\` not available or not signed in).`);
+    level = 'unknown'; reasons.push(`Couldn't verify repository access and visibility for ${scope.remote} through GitHub CLI.`);
   } else {
     level = 'caution'; reasons.push('No remote: make sure you know where this code came from.');
   }
   if (scope.pr) {
     if (scope.pr.fromFork) { level = 'untrusted'; reasons.push(`PR #${scope.pr.number} comes from a fork.`); }
-    if (scope.pr.author && me && scope.pr.author !== me) { level = 'untrusted'; reasons.push(`PR #${scope.pr.number} was written by @${scope.pr.author}, not you.`); }
+    if (scope.pr.author && me && scope.pr.author.toLowerCase() !== me.toLowerCase()) { level = 'untrusted'; reasons.push(`PR #${scope.pr.number} was written by @${scope.pr.author}, not you.`); }
   }
-  return { level, reasons };
+  return { level, reasons, visibility, ownership: owned ? 'owner' : canWrite ? 'write-access' : undefined };
 }
 
 const all = scope.files.length;

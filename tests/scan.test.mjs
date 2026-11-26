@@ -396,3 +396,22 @@ test('PR scans: no merge base means a clear stop, never a raw base..head diff', 
   assert.match(e.error, /no common ancestor.*unrelated/);
   assert.ok(!fs.existsSync(path.join(p.dir, '.codehawk', 'scope.json')) || p.scope().ref !== head);
 });
+
+test('repository trust verifies ownership and public visibility against the configured origin', { skip: process.platform === 'win32' }, () => {
+  const dir = repo();
+  git(dir, 'remote', 'add', 'origin', 'git@github.com:Acme/app.git');
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-trust-'));
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh
+case "$*" in
+  "repo view --repo github.com/acme/app --json "*) printf '%s' '{"nameWithOwner":"Acme/app","visibility":"PUBLIC"}';;
+  "api --hostname github.com user --jq .login") printf '%s' 'ACME';;
+  *) exit 1;;
+esac
+`, { mode: 0o755 });
+  const env = { ...OFFLINE, PATH: bin + path.delimiter + process.env.PATH };
+  const result = JSON.parse(execFileSync('node', [path.join(S, 'target.mjs'), dir, '--repo', '--json'], { encoding: 'utf8', env }));
+  assert.equal(result.trust.ownership, 'owner');
+  assert.equal(result.trust.visibility, 'PUBLIC');
+  assert.equal(result.trust.level, 'caution');
+  assert.match(result.trust.reasons[0], /is public.*signed in as the owner/i);
+});
