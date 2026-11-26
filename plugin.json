@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "codehawk",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Review code for security and quality, generate an interactive report, and apply approved fixes.",
   "author": {
     "name": "sudo-py-dev",
