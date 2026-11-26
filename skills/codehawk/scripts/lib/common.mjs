@@ -139,8 +139,10 @@ export function writeJson(file, data) {
 /** Read a file either from the working tree (ref null) or from a git object. */
 export const isObjectId = (value) => typeof value === 'string' && /^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/i.test(value);
 const blobCache = new Map();
+const CACHE_LIMIT = 8 * 1024 * 1024;
+let cacheBytes = 0;
 export function readAt(root, ref, rel) {
-  const key = `${ref || ''}:${rel}`;
+  const key = JSON.stringify([root, ref, rel]);
   if (blobCache.has(key)) return blobCache.get(key);
   let text = null;
   try {
@@ -159,7 +161,17 @@ export function readAt(root, ref, rel) {
     }
   } catch { text = null; }
   if (text && text.includes('\u0000')) text = null; // binary
-  blobCache.set(key, text);
+  const bytes = 2 * (key.length + (text?.length ?? 0)) + 128;
+  if (bytes <= CACHE_LIMIT) {
+    while (cacheBytes + bytes > CACHE_LIMIT) {
+      const oldest = blobCache.keys().next().value;
+      const value = blobCache.get(oldest);
+      blobCache.delete(oldest);
+      cacheBytes -= 2 * (oldest.length + (value?.length ?? 0)) + 128;
+    }
+    blobCache.set(key, text);
+    cacheBytes += bytes;
+  }
   return text;
 }
 

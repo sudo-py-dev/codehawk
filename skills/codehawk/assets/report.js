@@ -595,6 +595,7 @@ function rich(s) { return esc(s).replace(/`([^`]+)`/g, '<code class="mono">$1</c
 const KW = /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|class|extends|import|from|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|this|super|null|undefined|true|false|def|lambda|pass|elif|with|as|yield|None|True|False|self|and|or|not|is|func|package|go|defer|chan|map|struct|interface|type|public|private|protected|static|final|void|int|string|bool|fn|let|mut|impl|pub|use|mod|match|unsafe|where|echo|require|include|end|then|fi|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|INTO|VALUES|AND|OR|FROM|RUN|ENV|USER|COPY|uses|run|with)\b/;
 const TOK = /(\/\/.*$|#(?![{\[]).*$|\/\*.*?\*\/|--\s.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d[\d_.]*(?:e[+-]?\d+)?\b|\b0x[\da-f]+\b)|([A-Za-z_$][\w$]*)(?=\s*\()|([A-Za-z_$][\w$]*)/gi;
 function hl(line, lang) {
+  if (line.length > 2048) return esc(line);
   let out = '', last = 0, m;
   const hashComment = ['python', 'shell', 'ruby', 'yaml', 'gha', 'docker', 'terraform', 'env', 'text', 'config'].includes(lang);
   TOK.lastIndex = 0;

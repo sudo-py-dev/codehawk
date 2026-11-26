@@ -253,7 +253,7 @@ function assessTrust() {
   // Use the configured origin, even when Git rewrites its transport URL.
   const slug = repoSlug(tryGit(root, 'config', '--get', 'remote.origin.url'));
   const [host, owner, repo] = slug?.split('/') || [];
-  const metadata = slug && trySh('gh', ['repo', 'view', '--repo', slug, '--json', 'nameWithOwner,visibility,viewerPermission'], { cwd: root });
+  const metadata = slug && trySh('gh', ['repo', 'view', slug, '--json', 'nameWithOwner,visibility,viewerPermission'], { cwd: root });
   let details;
   try { details = metadata && JSON.parse(metadata); } catch { /* unavailable metadata */ }
   const matchesOrigin = details?.nameWithOwner?.toLowerCase() === (owner + '/' + repo);

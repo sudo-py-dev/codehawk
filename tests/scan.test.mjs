@@ -445,7 +445,7 @@ test('repository trust verifies ownership and public visibility against the conf
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'codehawk-trust-'));
   fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh
 case "$*" in
-  "repo view --repo github.com/acme/app --json "*) printf '%s' '{"nameWithOwner":"Acme/app","visibility":"PUBLIC"}';;
+  "repo view github.com/acme/app --json "*) printf '%s' '{"nameWithOwner":"Acme/app","visibility":"PUBLIC"}';;
   "api --hostname github.com user --jq .login") printf '%s' 'ACME';;
   *) exit 1;;
 esac

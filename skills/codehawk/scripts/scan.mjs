@@ -101,7 +101,7 @@ for (const f of scope.files) {
       qhits++;
       candidates.push({ ...c, file: f.path, col: 1, test: isTestPath(f.path) || undefined });
     }
-    if (!isTestPath(f.path)) dupInput.push({ path: f.path, lines, changed: f.changed });
+    if (!isTestPath(f.path)) dupInput.push(f);
   }
   for (const c of behavior(lines, f.lang, f.changed, { path: f.path })) {
     if (FOCUS !== 'all' && kindOf(c.category) !== FOCUS) continue;
@@ -152,7 +152,7 @@ function listSite(line) {
 }
 
 // Duplicated blocks across the scanned files.
-for (const c of duplicates(dupInput)) candidates.push({ ...c, col: 1 });
+for (const c of duplicates(dupInput, (file) => readAt(root, scope.ref, file)?.split(/\r?\n/) ?? [])) candidates.push({ ...c, col: 1 });
 for (const c of candidates) c.kind = kindOf(c.category);
 for (const c of candidates) if (!c.cwe && RULE_CWE[c.rule]) c.cwe = RULE_CWE[c.rule];
 

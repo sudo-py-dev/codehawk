@@ -219,17 +219,23 @@ function parseGemfileLock(text) {
 
 function parsePom(text) {
   const out = [];
-  const lines = text.split(/\r?\n/);
+  let line = 1;
+  let newline = text.indexOf('\n');
   const re = /<dependency>([\s\S]*?)<\/dependency>/g;
   let m;
   while ((m = re.exec(text))) {
     const body = m[1];
     const g = body.match(/<groupId>\s*([^<\s]+)\s*<\/groupId>/)?.[1];
-    const a = body.match(/<artifactId>\s*([^<\s]+)\s*<\/artifactId>/)?.[1];
+    const artifact = body.match(/<artifactId>\s*([^<\s]+)\s*<\/artifactId>/);
+    const a = artifact?.[1];
     const v = body.match(/<version>\s*([^<\s]+)\s*<\/version>/)?.[1];
     if (!g || !a || !v || v.includes('${') || /[[(,]/.test(v)) continue;
-    const line = text.slice(0, m.index).split('\n').length;
-    out.push({ name: `${g}:${a}`, version: v, line: lineOf(lines, new RegExp(`<artifactId>\\s*${esc(a)}\\s*<`), line - 1) || line, dev: /<scope>\s*test\s*</.test(body) });
+    const offset = m.index + '<dependency>'.length + artifact.index;
+    while (newline !== -1 && newline < offset) {
+      line++;
+      newline = text.indexOf('\n', newline + 1);
+    }
+    out.push({ name: `${g}:${a}`, version: v, line, dev: /<scope>\s*test\s*</.test(body) });
   }
   return out;
 }

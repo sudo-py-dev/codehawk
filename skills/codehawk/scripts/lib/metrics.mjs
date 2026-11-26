@@ -2,6 +2,8 @@
 // Deliberately simple and language-agnostic (brace counting / indentation), so they're fast and
 // dependency-free. They produce candidates; the reviewer decides which deserve a comment.
 
+import { createHash } from 'node:crypto';
+
 const BRACE_LANGS = new Set(['javascript', 'typescript', 'go', 'java', 'csharp', 'c', 'rust', 'php', 'swift']);
 const CONTROL = /^\s*(if|for|while|switch|catch|else|do|try|return|with|using|lock|foreach|unless|until)\b/;
 const FN_START = {
@@ -178,9 +180,9 @@ export function behavior(lines, lang, changed, { path: file = '' } = {}) {
 
 /**
  * Find blocks of >= `min` significant lines that appear in two places.
- * files: [{ path, lines, changed }] — returns candidates placed on the later occurrence.
+ * files: [{ path, changed }] — returns candidates placed on the later occurrence.
  */
-export function duplicates(files, { min = 6, max = 25 } = {}) {
+export function duplicates(files, readLines, { min = 6, max = 25 } = {}) {
   const sig = (l) => {
     const t = l.trim().replace(/\s+/g, ' ');
     if (t.length < 12) return null;
@@ -189,23 +191,35 @@ export function duplicates(files, { min = 6, max = 25 } = {}) {
   };
   const seen = new Map();
   const out = [];
-  for (const f of files) {
+  const collect = (file) => {
     const rows = [];
-    f.lines.forEach((l, i) => { const s = sig(l); if (s) rows.push({ s, n: i + 1 }); });
+    readLines(file.path).forEach((line, i) => {
+      const s = sig(line);
+      if (s) rows.push({ s, n: i + 1 });
+    });
+    return rows;
+  };
+  let cachedFile, cachedRows;
+  for (const f of files) {
+    const rows = collect(f);
     let skipUntil = -1;
     for (let r = 0; r + min <= rows.length; r++) {
       const key = rows.slice(r, r + min).map((x) => x.s).join('\n');
+      const digest = createHash('sha256').update(key).digest('base64');
       const here = { path: f.path, start: rows[r].n, end: rows[r + min - 1].n };
-      const prev = seen.get(key);
-      if (!prev) { seen.set(key, here); continue; }
+      const prev = seen.get(digest);
+      if (!prev) { seen.set(digest, { ...here, file: f, index: r }); continue; }
       if (prev.path === here.path && prev.end >= here.start) continue; // overlapping window, same place
       if (here.start <= skipUntil) continue;
       // Extend the match as far as it goes.
       let len = min;
-      const prevFile = files.find((x) => x.path === prev.path);
-      const prevRows = [];
-      prevFile.lines.forEach((l, i) => { const s = sig(l); if (s) prevRows.push({ s, n: i + 1 }); });
-      const p0 = prevRows.findIndex((x) => x.n === prev.start);
+      if (prev.file !== f && prev.file !== cachedFile) {
+        cachedFile = prev.file;
+        cachedRows = collect(cachedFile);
+      }
+      const prevRows = prev.file === f ? rows : cachedRows;
+      const p0 = prev.index;
+      if (prevRows.slice(p0, p0 + min).map((x) => x.s).join('\n') !== key) continue;
       while (r + len < rows.length && p0 + len < prevRows.length && rows[r + len].s === prevRows[p0 + len].s && !(prev.path === here.path && prevRows[p0 + len].n >= here.start)) len++;
       const endLine = rows[r + len - 1].n;
       skipUntil = endLine;

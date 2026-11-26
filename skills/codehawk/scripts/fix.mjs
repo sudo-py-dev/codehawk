@@ -318,7 +318,7 @@ if (cmd === 'plan') {
     const now = fileLines(i.file);
     if (now == null || sha(now) !== i.fileHash) fail(`${i.file} changed after the plan was made (or isn't a regular file inside the repo). Re-run \`fix.mjs plan\`.`, JSON_OUT);
   }
-  const byFile = {};
+  const byFile = Object.create(null);
   for (const i of ready) (byFile[i.file] ||= []).push(i);
   const applied = [];
   const writes = [];
